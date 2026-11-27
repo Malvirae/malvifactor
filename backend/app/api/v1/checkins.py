@@ -113,14 +113,48 @@ async def list_checkins(
 
 @router.get("/analytics", response_model=list[AnalyticsPoint])
 async def get_analytics(
-    days: int = Query(default=30, ge=7, le=365),
+    days: int = Query(default=30, ge=0, le=3650),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[AnalyticsPoint]:
     """Return daily intake, weight, trend weight, and estimated TDEE series."""
     profile = await _get_or_create_profile(db, current_user)
     end_date = date.today()
-    start_date = end_date - timedelta(days=days - 1)
+    if days == 0:
+        min_weight_res = await db.execute(
+            select(func.min(WeightLog.measured_at)).where(
+                WeightLog.user_id == current_user.id
+            )
+        )
+        min_food_res = await db.execute(
+            select(func.min(FoodLog.logged_date)).where(
+                FoodLog.user_id == current_user.id
+            )
+        )
+        min_checkin_res = await db.execute(
+            select(func.min(WeeklyCheckin.checkin_date)).where(
+                WeeklyCheckin.user_id == current_user.id,
+                WeeklyCheckin.accepted.is_(True),
+            )
+        )
+        candidates: list[date] = []
+        min_w = min_weight_res.scalar_one_or_none()
+        if min_w is not None:
+            candidates.append(min_w.date())
+        min_f = min_food_res.scalar_one_or_none()
+        if min_f is not None:
+            candidates.append(min_f)
+        min_c = min_checkin_res.scalar_one_or_none()
+        if min_c is not None:
+            candidates.append(min_c)
+        earliest = min(candidates) if candidates else (end_date - timedelta(days=29))
+        earliest = min(earliest, end_date)
+        computed_days = max(7, (end_date - earliest).days + 1)
+        start_date = end_date - timedelta(days=min(computed_days, 3650) - 1)
+        days = (end_date - start_date).days + 1
+    else:
+        days = max(7, days)
+        start_date = end_date - timedelta(days=days - 1)
 
     intake_res = await db.execute(
         select(

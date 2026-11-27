@@ -258,7 +258,7 @@ class _DashboardBody extends StatelessWidget {
                 title: 'Dépense (TDEE)',
                 subtitle: '7 derniers jours',
                 value: '${data.profile.currentTdeeKcal.round()} kcal',
-                color: AppColors.protein,
+                color: AppColors.expenditure,
                 spots: tdeeSpots,
                 onTap: () => onOpenMetric(MetricCategory.expenditure),
               ),
@@ -277,7 +277,7 @@ class _DashboardBody extends StatelessWidget {
           children: [
             Expanded(
               child: _InsightSparkCard(
-                title: 'Poids tendance',
+                title: 'Tendance de poids',
                 subtitle: '7 derniers jours',
                 value: latestTrend != null
                     ? '${latestTrend.toStringAsFixed(1)} kg'

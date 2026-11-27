@@ -96,7 +96,7 @@ Future<void> showWeightHabitDetailSheet(
                     child: Divider(),
                   ),
                   _DetailRow(
-                    label: 'Poids tendance (EWMA)',
+                    label: 'Tendance de poids (EWMA)',
                     value: entry.trendWeightKg != null
                         ? '${entry.trendWeightKg!.toStringAsFixed(1)} kg'
                         : 'Non renseigné',

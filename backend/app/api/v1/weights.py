@@ -27,14 +27,15 @@ async def list_weights(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[WeightLog]:
-    """Return chronological weight history with EWMA trend."""
+    """Return chronological weight history with EWMA trend (up to today)."""
+    today = date.today()
+    effective_end = min(end_date, today) if end_date is not None else today
     stmt = select(WeightLog).where(WeightLog.user_id == current_user.id)
     if start_date is not None:
         start_dt = datetime.combine(start_date, time.min).astimezone()
         stmt = stmt.where(WeightLog.measured_at >= start_dt)
-    if end_date is not None:
-        end_dt = datetime.combine(end_date, time.max).astimezone()
-        stmt = stmt.where(WeightLog.measured_at <= end_dt)
+    end_dt = datetime.combine(effective_end, time.max).astimezone()
+    stmt = stmt.where(WeightLog.measured_at <= end_dt)
 
     stmt = stmt.order_by(WeightLog.measured_at.asc())
     res = await db.execute(stmt)

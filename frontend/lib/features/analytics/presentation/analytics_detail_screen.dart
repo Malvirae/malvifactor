@@ -114,7 +114,7 @@ class _WeightChartCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Poids brut vs Tendance EWMA',
+            'Poids brut vs Tendance de poids',
             style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 4),

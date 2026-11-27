@@ -8,6 +8,10 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:malvifactor/core/theme/app_theme.dart';
 import 'package:malvifactor/features/analytics/presentation/analytics_detail_screen.dart';
+import 'package:malvifactor/features/analytics/presentation/widgets/expenditure_view.dart';
+import 'package:malvifactor/features/analytics/presentation/widgets/goal_progress_view.dart';
+import 'package:malvifactor/features/analytics/presentation/widgets/weight_trend_view.dart';
+import 'package:malvifactor/features/analytics/providers/analytics_provider.dart';
 import 'package:malvifactor/features/dashboard/data/dashboard_repository.dart';
 import 'package:malvifactor/features/profile/providers/profile_provider.dart';
 import 'package:malvifactor/shared/widgets/habit_day_detail_sheet.dart';
@@ -41,9 +45,9 @@ class _MetricDetailScreenState extends ConsumerState<MetricDetailScreen> {
       case MetricCategory.expenditure:
         return 'DÉPENSE (TDEE)';
       case MetricCategory.goalProgress:
-        return 'PROGRESSION OBJECTIF';
+        return 'PROGRESSION DE L’OBJECTIF';
       case MetricCategory.weightTrend:
-        return 'POIDS TENDANCE';
+        return 'TENDANCE DE POIDS';
       case MetricCategory.bodyFat:
         return 'MASSE GRASSE';
       case MetricCategory.weightHabits:
@@ -57,6 +61,11 @@ class _MetricDetailScreenState extends ConsumerState<MetricDetailScreen> {
       widget.category == MetricCategory.weightHabits ||
       widget.category == MetricCategory.foodHabits;
 
+  bool get _isMacroFactorRefactoredView =>
+      widget.category == MetricCategory.weightTrend ||
+      widget.category == MetricCategory.expenditure ||
+      widget.category == MetricCategory.goalProgress;
+
   @override
   Widget build(BuildContext context) {
     final days = ref.watch(analyticsDaysProvider);
@@ -65,73 +74,93 @@ class _MetricDetailScreenState extends ConsumerState<MetricDetailScreen> {
       appBar: AppBar(title: Text(_title)),
       body: _isHabitView
           ? _buildHabitCalendarView()
-          : Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-                  child: SegmentedButton<int>(
-                    segments: const [
-                      ButtonSegment(value: 7, label: Text('7J')),
-                      ButtonSegment(value: 14, label: Text('14J')),
-                      ButtonSegment(value: 30, label: Text('30J')),
-                      ButtonSegment(value: 90, label: Text('90J')),
-                    ],
-                    selected: {days},
-                    onSelectionChanged: (sel) =>
-                        ref.read(analyticsDaysProvider.notifier).state =
-                            sel.first,
-                  ),
+          : _isMacroFactorRefactoredView
+              ? _buildFullMetricView()
+              : Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                      child: SegmentedButton<int>(
+                        segments: const [
+                          ButtonSegment(value: 7, label: Text('7J')),
+                          ButtonSegment(value: 14, label: Text('14J')),
+                          ButtonSegment(value: 30, label: Text('30J')),
+                          ButtonSegment(value: 90, label: Text('90J')),
+                        ],
+                        selected: {days},
+                        onSelectionChanged: (sel) =>
+                            ref.read(analyticsDaysProvider.notifier).state =
+                                sel.first,
+                      ),
+                    ),
+                    Expanded(
+                      child: _buildBodyFatMetricBody(days),
+                    ),
+                  ],
                 ),
-                Expanded(
-                  child: _buildMetricBody(days),
-                ),
-              ],
-            ),
     );
   }
 
-  Widget _buildMetricBody(int days) {
-    if (widget.category == MetricCategory.bodyFat) {
-      final start = DateTime.now().subtract(Duration(days: days - 1));
-      return FutureBuilder<List<WeightEntryModel>>(
-        future: ref.read(dashboardRepositoryProvider).fetchWeights(
-              startDate: start,
-              endDate: DateTime.now(),
-            ),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(color: AppColors.calories),
-            );
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('Erreur : ${snapshot.error}'));
-          }
-          final weights = (snapshot.data ?? const [])
-              .where((w) => w.bodyFatPct != null)
-              .toList();
-          return _BodyFatDetailView(entries: weights, days: days);
-        },
-      );
-    }
-
-    final seriesAsync = ref.watch(analyticsSeriesProvider);
-    return seriesAsync.when(
+  Widget _buildFullMetricView() {
+    final ctxAsync = ref.watch(fullMetricContextProvider);
+    return ctxAsync.when(
       loading: () => const Center(
         child: CircularProgressIndicator(color: AppColors.calories),
       ),
-      error: (e, _) => Center(child: Text('Erreur : $e')),
-      data: (points) {
+      error: (e, _) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Erreur : $e', textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: () => ref.invalidate(fullMetricContextProvider),
+                child: const Text('Réessayer'),
+              ),
+            ],
+          ),
+        ),
+      ),
+      data: (ctx) {
         switch (widget.category) {
-          case MetricCategory.expenditure:
-            return _ExpenditureDetailView(points: points);
-          case MetricCategory.goalProgress:
-            return _GoalProgressDetailView(points: points);
           case MetricCategory.weightTrend:
-            return _WeightTrendDetailView(points: points);
+            return WeightTrendDetailView(ctx: ctx);
+          case MetricCategory.expenditure:
+            return ExpenditureDetailView(ctx: ctx);
+          case MetricCategory.goalProgress:
+            return GoalProgressDetailView(ctx: ctx);
           default:
             return const SizedBox.shrink();
         }
+      },
+    );
+  }
+
+  Widget _buildBodyFatMetricBody(int days) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final start = today.subtract(Duration(days: days - 1));
+    return FutureBuilder<List<WeightEntryModel>>(
+      future: ref.read(dashboardRepositoryProvider).fetchWeights(
+            startDate: start,
+            endDate: today,
+          ),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(color: AppColors.calories),
+          );
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Erreur : ${snapshot.error}'));
+        }
+        final weights = (snapshot.data ?? const [])
+            .where((w) =>
+                w.bodyFatPct != null && !w.measuredAt.toLocal().isAfter(now))
+            .toList();
+        return _BodyFatDetailView(entries: weights, days: days);
       },
     );
   }
@@ -161,7 +190,6 @@ class _MetricDetailScreenState extends ConsumerState<MetricDetailScreen> {
         final leadingBlanks = monthStart.weekday - 1; // Mon=1 -> 0
         final totalCells = leadingBlanks + daysInMonth;
 
-        // Compute current streak up to today
         final streak = _computeStreak(activeKeys);
 
         return ListView(
@@ -370,8 +398,16 @@ class _MetricDetailScreenState extends ConsumerState<MetricDetailScreen> {
     bool isWeight,
   ) async {
     final repo = ref.read(dashboardRepositoryProvider);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final boundedEnd = end.isAfter(today) ? today : end;
+    if (boundedEnd.isBefore(start)) {
+      return const _HabitMonthData();
+    }
+
     if (isWeight) {
-      final list = await repo.fetchWeights(startDate: start, endDate: end);
+      final list =
+          await repo.fetchWeights(startDate: start, endDate: boundedEnd);
       final weightsByKey = <String, WeightEntryModel>{};
       for (final w in list) {
         weightsByKey[_dateKey(w.measuredAt.toLocal())] = w;
@@ -381,7 +417,7 @@ class _MetricDetailScreenState extends ConsumerState<MetricDetailScreen> {
         weightsByKey: weightsByKey,
       );
     } else {
-      final list = await repo.fetchLogsSummary(start, end);
+      final list = await repo.fetchLogsSummary(start, boundedEnd);
       final summariesByKey = <String, DaySummaryModel>{};
       for (final s in list) {
         if (s.entriesCount > 0) {
@@ -452,353 +488,6 @@ class _EmptyChartState extends StatelessWidget {
           style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
         ),
       ),
-    );
-  }
-}
-
-class _ExpenditureDetailView extends StatelessWidget {
-  const _ExpenditureDetailView({required this.points});
-
-  final List<AnalyticsPointModel> points;
-
-  @override
-  Widget build(BuildContext context) {
-    final hasEnough = points.length >= 2;
-    final first = points.isNotEmpty ? points.first.estimatedTdeeKcal : 0.0;
-    final last = points.isNotEmpty ? points.last.estimatedTdeeKcal : 0.0;
-    final delta = last - first;
-
-    final validPoints = [
-      for (var i = 0; i < points.length; i++)
-        if (points[i].estimatedTdeeKcal > 0)
-          FlSpot(i.toDouble(), points[i].estimatedTdeeKcal),
-    ];
-    final values = points
-        .map((p) => p.estimatedTdeeKcal)
-        .where((v) => v > 0)
-        .toList();
-    final minY = values.isEmpty
-        ? 1500.0
-        : math.max(0.0, values.reduce(math.min) - 150);
-    final maxY = values.isEmpty ? 3000.0 : values.reduce(math.max) + 150;
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
-      children: [
-        Container(
-          decoration: AppTheme.matteCardDecoration(),
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    '${last.round()} kcal / j',
-                    style: AppTheme.numericStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.protein,
-                    ),
-                  ),
-                  Text(
-                    '${delta >= 0 ? '+' : ''}${delta.round()} kcal sur la période',
-                    style: AppTheme.numericStyle(
-                      fontSize: 12,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              if (!hasEnough)
-                const _EmptyChartState()
-              else
-                SizedBox(
-                  height: 220,
-                  child: LineChart(
-                    LineChartData(
-                      minX: 0,
-                      maxX: points.isEmpty ? 0.0 : (points.length - 1).toDouble(),
-                      minY: minY,
-                      maxY: maxY,
-                      gridData: FlGridData(
-                        show: true,
-                        drawVerticalLine: false,
-                        getDrawingHorizontalLine: (_) => const FlLine(
-                          color: AppColors.border,
-                          strokeWidth: 1,
-                        ),
-                      ),
-                      borderData: FlBorderData(show: false),
-                      titlesData: _buildMetricDateTitles(points),
-                      lineBarsData: [
-                        LineChartBarData(
-                          spots: validPoints,
-                          isCurved: true,
-                          curveSmoothness: 0.15,
-                          preventCurveOverShooting: true,
-                          color: AppColors.protein,
-                          barWidth: 2.8,
-                          dotData: const FlDotData(show: false),
-                          belowBarData: BarAreaData(
-                            show: true,
-                            color: AppColors.protein.withValues(alpha: 0.10),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        Container(
-          decoration: AppTheme.matteCardDecoration(),
-          padding: const EdgeInsets.all(16),
-          child: const Text(
-            'Le TDEE adaptatif est recalculé sur une fenêtre glissante de 21 jours à partir de vos apports moyens (hors jours incomplets < 40 % du TDEE) et de la variation de votre poids tendance lissé (EWMA).',
-            style: TextStyle(
-              fontSize: 13,
-              color: AppColors.textSecondary,
-              height: 1.45,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _GoalProgressDetailView extends StatelessWidget {
-  const _GoalProgressDetailView({required this.points});
-
-  final List<AnalyticsPointModel> points;
-
-  @override
-  Widget build(BuildContext context) {
-    final logged = points.where((p) => p.intakeKcal > 0).toList();
-    final adherence = logged.isEmpty
-        ? 0.0
-        : (logged
-                    .map((p) => p.targetKcal <= 0
-                        ? 0.0
-                        : (1.0 -
-                                ((p.intakeKcal - p.targetKcal).abs() /
-                                    p.targetKcal))
-                            .clamp(0.0, 1.0))
-                    .reduce((a, b) => a + b) /
-                logged.length) *
-            100.0;
-
-    final maxY = points.fold<double>(
-      1000.0,
-      (prev, p) => math.max(prev, math.max(p.intakeKcal, p.targetKcal)),
-    );
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
-      children: [
-        Container(
-          decoration: AppTheme.matteCardDecoration(),
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Adhérence : ${adherence.round()} %',
-                    style: AppTheme.numericStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.carbs,
-                    ),
-                  ),
-                  Text(
-                    '${logged.length} jours saisis',
-                    style: AppTheme.numericStyle(
-                      fontSize: 12,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              if (logged.isEmpty)
-                const _EmptyChartState()
-              else
-                SizedBox(
-                  height: 220,
-                  child: BarChart(
-                    BarChartData(
-                      maxY: maxY * 1.15,
-                      gridData: FlGridData(
-                        show: true,
-                        drawVerticalLine: false,
-                        getDrawingHorizontalLine: (_) => const FlLine(
-                          color: AppColors.border,
-                          strokeWidth: 1,
-                        ),
-                      ),
-                      borderData: FlBorderData(show: false),
-                      titlesData: _buildMetricDateTitles(points),
-                      barGroups: [
-                        for (var i = 0; i < points.length; i++)
-                          BarChartGroupData(
-                            x: i,
-                            barRods: [
-                              BarChartRodData(
-                                toY: points[i].intakeKcal,
-                                color: AppColors.calories,
-                                width: points.length > 35 ? 3 : 6,
-                                borderRadius: const BorderRadius.vertical(
-                                  top: Radius.circular(3),
-                                ),
-                              ),
-                            ],
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _WeightTrendDetailView extends StatelessWidget {
-  const _WeightTrendDetailView({required this.points});
-
-  final List<AnalyticsPointModel> points;
-
-  @override
-  Widget build(BuildContext context) {
-    final rawSpots = <FlSpot>[];
-    final trendSpots = <FlSpot>[];
-    final values = <double>[];
-
-    for (var i = 0; i < points.length; i++) {
-      final p = points[i];
-      if (p.weightKg != null) {
-        rawSpots.add(FlSpot(i.toDouble(), p.weightKg!));
-        values.add(p.weightKg!);
-      }
-      if (p.trendWeightKg != null) {
-        trendSpots.add(FlSpot(i.toDouble(), p.trendWeightKg!));
-        values.add(p.trendWeightKg!);
-      }
-    }
-
-    final hasEnough = trendSpots.length >= 2 || rawSpots.length >= 2;
-    final minY = values.isEmpty ? 60.0 : values.reduce(math.min) - 1.5;
-    final maxY = values.isEmpty ? 90.0 : values.reduce(math.max) + 1.5;
-
-    final startTrend = trendSpots.isNotEmpty ? trendSpots.first.y : null;
-    final endTrend = trendSpots.isNotEmpty ? trendSpots.last.y : null;
-    final delta = (startTrend != null && endTrend != null)
-        ? endTrend - startTrend
-        : null;
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
-      children: [
-        Container(
-          decoration: AppTheme.matteCardDecoration(),
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    endTrend != null
-                        ? '${endTrend.toStringAsFixed(1)} kg'
-                        : '-- kg',
-                    style: AppTheme.numericStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.weight,
-                    ),
-                  ),
-                  if (delta != null)
-                    Text(
-                      '${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(2)} kg',
-                      style: AppTheme.numericStyle(
-                        fontSize: 13,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              if (!hasEnough)
-                const _EmptyChartState()
-              else
-                SizedBox(
-                  height: 220,
-                  child: LineChart(
-                    LineChartData(
-                      minX: 0,
-                      maxX: points.isEmpty ? 0.0 : (points.length - 1).toDouble(),
-                      minY: minY,
-                      maxY: maxY,
-                      gridData: FlGridData(
-                        show: true,
-                        drawVerticalLine: false,
-                        getDrawingHorizontalLine: (_) => const FlLine(
-                          color: AppColors.border,
-                          strokeWidth: 1,
-                        ),
-                      ),
-                      borderData: FlBorderData(show: false),
-                      titlesData: _buildMetricDateTitles(points),
-                      lineBarsData: [
-                        if (rawSpots.isNotEmpty)
-                          LineChartBarData(
-                            spots: rawSpots,
-                            isCurved: false,
-                            color: Colors.transparent,
-                            barWidth: 0,
-                            dotData: FlDotData(
-                              show: true,
-                              getDotPainter: (_, __, ___, ____) =>
-                                  FlDotCirclePainter(
-                                radius: 3.2,
-                                color: AppColors.textSecondary,
-                                strokeWidth: 0,
-                              ),
-                            ),
-                          ),
-                        if (trendSpots.isNotEmpty)
-                          LineChartBarData(
-                            spots: trendSpots,
-                            isCurved: true,
-                            curveSmoothness: 0.15,
-                            preventCurveOverShooting: true,
-                            color: AppColors.weight,
-                            barWidth: 2.8,
-                            dotData: const FlDotData(show: false),
-                            belowBarData: BarAreaData(
-                              show: true,
-                              color: AppColors.weight.withValues(alpha: 0.10),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }
@@ -975,51 +664,4 @@ class _BodyFatDetailView extends StatelessWidget {
       ],
     );
   }
-}
-
-FlTitlesData _buildMetricDateTitles(List<AnalyticsPointModel> points) {
-  final step = math.max(1, (points.length / 4).floor());
-  return FlTitlesData(
-    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-    leftTitles: AxisTitles(
-      sideTitles: SideTitles(
-        showTitles: true,
-        reservedSize: 42,
-        getTitlesWidget: (val, _) => Text(
-          val.round().toString(),
-          style: AppTheme.numericStyle(
-            fontSize: 10,
-            color: AppColors.textMuted,
-          ),
-        ),
-      ),
-    ),
-    bottomTitles: AxisTitles(
-      sideTitles: SideTitles(
-        showTitles: true,
-        interval: step.toDouble(),
-        getTitlesWidget: (val, meta) {
-          final idx = val.toInt();
-          if (idx < 0 || idx >= points.length) {
-            return const SizedBox.shrink();
-          }
-          if (val != meta.max &&
-              (meta.max - val) < meta.appliedInterval * 0.65) {
-            return const SizedBox.shrink();
-          }
-          return Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Text(
-              DateFormat('dd/MM').format(points[idx].date),
-              style: AppTheme.numericStyle(
-                fontSize: 10,
-                color: AppColors.textMuted,
-              ),
-            ),
-          );
-        },
-      ),
-    ),
-  );
 }

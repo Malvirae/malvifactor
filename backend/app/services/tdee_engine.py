@@ -187,9 +187,11 @@ async def compute_adaptive_checkin(
     window_days: int = DEFAULT_WINDOW_DAYS,
 ) -> CheckinComputation:
     """Analyze intake and EWMA weight trend over a 14-21 day window."""
-    ref_date = reference_date or date.today()
-    period_end = ref_date
-    period_start = ref_date - timedelta(days=window_days - 1)
+    today = date.today()
+    ref_date = min(reference_date, today) if reference_date is not None else today
+    # Exclude today (incomplete) and any future dates: only completed past days (< today).
+    period_end = ref_date - timedelta(days=1)
+    period_start = period_end - timedelta(days=window_days - 1)
 
     daily_intake_res = await db.execute(
         select(
@@ -220,14 +222,14 @@ async def compute_adaptive_checkin(
     )
 
     window_start_dt = datetime.combine(period_start, time.min).astimezone()
-    window_end_dt = datetime.combine(period_end, time.max).astimezone()
+    ref_end_dt = datetime.combine(ref_date, time.max).astimezone()
 
     weights_res = await db.execute(
         select(WeightLog)
         .where(
             WeightLog.user_id == profile.user_id,
             WeightLog.measured_at >= window_start_dt,
-            WeightLog.measured_at <= window_end_dt,
+            WeightLog.measured_at <= ref_end_dt,
         )
         .order_by(WeightLog.measured_at.asc())
     )
@@ -247,7 +249,10 @@ async def compute_adaptive_checkin(
     else:
         latest_weight_res = await db.execute(
             select(WeightLog)
-            .where(WeightLog.user_id == profile.user_id)
+            .where(
+                WeightLog.user_id == profile.user_id,
+                WeightLog.measured_at <= ref_end_dt,
+            )
             .order_by(desc(WeightLog.measured_at))
             .limit(1)
         )

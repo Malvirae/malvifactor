@@ -18,6 +18,9 @@ class AppColors {
   static const Color fat = Color(0xFFFACC15);
   static const Color carbs = Color(0xFF4ADE80);
   static const Color weight = Color(0xFFA78BFA);
+  static const Color expenditure = Color(0xFFF87171);
+  static const Color goalToward = Color(0xFF15803D);
+  static const Color goalAway = Color(0xFF86EFAC);
 
   static const Color success = Color(0xFF34D399);
   static const Color warning = Color(0xFFFBBF24);

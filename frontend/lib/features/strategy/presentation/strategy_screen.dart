@@ -7,6 +7,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:malvifactor/core/theme/app_theme.dart';
 import 'package:malvifactor/features/analytics/presentation/analytics_detail_screen.dart';
+import 'package:malvifactor/features/analytics/providers/analytics_provider.dart';
 import 'package:malvifactor/features/dashboard/data/dashboard_repository.dart';
 import 'package:malvifactor/features/dashboard/providers/dashboard_provider.dart';
 import 'package:malvifactor/features/profile/data/profile_repository.dart';
@@ -100,6 +101,7 @@ class StrategyScreen extends ConsumerWidget {
       ref.invalidate(profileProvider);
       ref.invalidate(dashboardProvider);
       ref.invalidate(analyticsSeriesProvider);
+      ref.invalidate(fullMetricContextProvider);
     }
   }
 
@@ -588,7 +590,7 @@ class _CheckinReviewSheetState extends ConsumerState<_CheckinReviewSheet> {
                 ),
                 const SizedBox(height: 8),
                 _CompareRow(
-                  label: 'Variation poids tendance',
+                  label: 'Variation tendance de poids',
                   value:
                       '${weightDelta >= 0 ? '+' : ''}${weightDelta.toStringAsFixed(2)} kg',
                 ),
