@@ -167,7 +167,18 @@ async def get_analytics(
 
     points: list[AnalyticsPoint] = []
     checkin_idx = 0
-    current_est_tdee = round(profile.initial_tdee_kcal, 0)
+    fallback_tdee = round(
+        profile.current_tdee_kcal
+        if profile.current_tdee_kcal > 0
+        else max(profile.initial_tdee_kcal, 0.0),
+        0,
+    )
+    current_est_tdee = round(
+        profile.initial_tdee_kcal
+        if profile.initial_tdee_kcal > 0
+        else fallback_tdee,
+        0,
+    )
     current_target_kcal = round(profile.current_calorie_target, 0)
 
     for offset in range(days):
@@ -176,16 +187,19 @@ async def get_analytics(
             checkin_idx < len(checkins)
             and checkins[checkin_idx].checkin_date <= day
         ):
-            current_est_tdee = round(
-                checkins[checkin_idx].calculated_tdee_kcal, 0
-            )
-            current_target_kcal = round(
-                checkins[checkin_idx].new_calorie_target, 0
-            )
+            if checkins[checkin_idx].calculated_tdee_kcal > 0:
+                current_est_tdee = round(
+                    checkins[checkin_idx].calculated_tdee_kcal, 0
+                )
+            if checkins[checkin_idx].new_calorie_target > 0:
+                current_target_kcal = round(
+                    checkins[checkin_idx].new_calorie_target, 0
+                )
             checkin_idx += 1
 
+        if not checkins or current_est_tdee <= 0:
+            current_est_tdee = fallback_tdee
         if not checkins:
-            current_est_tdee = round(profile.current_tdee_kcal, 0)
             current_target_kcal = round(profile.current_calorie_target, 0)
 
         w_entry = weight_by_day.get(day)

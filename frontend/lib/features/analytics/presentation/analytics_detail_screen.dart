@@ -185,6 +185,8 @@ class _WeightChartCard extends StatelessWidget {
                           LineChartBarData(
                             spots: trendSpots,
                             isCurved: true,
+                            curveSmoothness: 0.15,
+                            preventCurveOverShooting: true,
                             color: AppColors.weight,
                             barWidth: 2.8,
                             dotData: const FlDotData(show: false),
@@ -212,10 +214,16 @@ class _TdeeChartCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final spots = [
       for (var i = 0; i < points.length; i++)
-        FlSpot(i.toDouble(), points[i].estimatedTdeeKcal),
+        if (points[i].estimatedTdeeKcal > 0)
+          FlSpot(i.toDouble(), points[i].estimatedTdeeKcal),
     ];
-    final values = points.map((p) => p.estimatedTdeeKcal).toList();
-    final minY = values.isEmpty ? 1500.0 : (values.reduce(math.min) - 150);
+    final values = points
+        .map((p) => p.estimatedTdeeKcal)
+        .where((v) => v > 0)
+        .toList();
+    final minY = values.isEmpty
+        ? 1500.0
+        : math.max(0.0, values.reduce(math.min) - 150);
     final maxY = values.isEmpty ? 3000.0 : (values.reduce(math.max) + 150);
 
     return Container(
@@ -269,6 +277,8 @@ class _TdeeChartCard extends StatelessWidget {
                         LineChartBarData(
                           spots: spots,
                           isCurved: true,
+                          curveSmoothness: 0.15,
+                          preventCurveOverShooting: true,
                           color: AppColors.protein,
                           barWidth: 2.6,
                           dotData: const FlDotData(show: false),
@@ -404,9 +414,13 @@ FlTitlesData _buildDateTitles(List<AnalyticsPointModel> points) {
       sideTitles: SideTitles(
         showTitles: true,
         interval: step.toDouble(),
-        getTitlesWidget: (val, _) {
+        getTitlesWidget: (val, meta) {
           final idx = val.toInt();
           if (idx < 0 || idx >= points.length) {
+            return const SizedBox.shrink();
+          }
+          if (val != meta.max &&
+              (meta.max - val) < meta.appliedInterval * 0.65) {
             return const SizedBox.shrink();
           }
           return Padding(

@@ -1,12 +1,13 @@
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import desc, select
+from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
-from app.models.tracking import WeeklyCheckin, WeightLog
+from app.models.food import Food, FoodSource, Recipe
+from app.models.tracking import FoodLog, WeeklyCheckin, WeightLog
 from app.models.user import (
     Sex,
     User,
@@ -123,6 +124,7 @@ async def update_profile(
 ) -> UserProfile:
     """Update physiological profile and optionally compute Mifflin-St Jeor TDEE & macros."""
     profile = await _get_or_create_profile(db, current_user)
+    was_onboarded = bool(profile.onboarding_completed)
     old_tdee = profile.current_tdee_kcal
     old_kcal = profile.current_calorie_target
     old_protein = profile.current_protein_g
@@ -212,7 +214,7 @@ async def update_profile(
             )
             .limit(1)
         )
-        if earlier_res.scalar_one_or_none() is None:
+        if earlier_res.scalar_one_or_none() is None and was_onboarded and old_tdee > 0 and old_kcal > 0:
             baseline_date = min(
                 current_user.created_at.date(), today - timedelta(days=1)
             )
@@ -257,3 +259,37 @@ async def update_profile(
     await db.commit()
     await db.refresh(profile)
     return profile
+
+
+@router.post("/reset-data")
+async def reset_user_data(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Delete all tracking/custom data for the current user without touching account credentials."""
+    await db.execute(delete(FoodLog).where(FoodLog.user_id == current_user.id))
+    await db.execute(delete(WeightLog).where(WeightLog.user_id == current_user.id))
+    await db.execute(
+        delete(WeeklyCheckin).where(WeeklyCheckin.user_id == current_user.id)
+    )
+    await db.execute(
+        delete(Recipe).where(Recipe.created_by_user_id == current_user.id)
+    )
+    await db.execute(
+        delete(Food).where(
+            Food.source == FoodSource.CUSTOM,
+            Food.created_by_user_id == current_user.id,
+        )
+    )
+
+    profile = await _get_or_create_profile(db, current_user)
+    profile.onboarding_completed = False
+    profile.initial_tdee_kcal = 0.0
+    profile.current_tdee_kcal = 0.0
+    profile.current_calorie_target = 0.0
+    profile.current_protein_g = 0.0
+    profile.current_fat_g = 0.0
+    profile.current_carbs_g = 0.0
+
+    await db.commit()
+    return {"message": "User data reset successfully"}

@@ -23,6 +23,7 @@ Future<void> openFoodLoggerSheet(
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     backgroundColor: AppColors.surface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
@@ -304,15 +305,18 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
   Widget build(BuildContext context) {
     final recipesAsync = ref.watch(recipesListProvider(_searchController.text));
 
-    return SizedBox(
-      height: MediaQuery.of(context).size.height * 0.88,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          12,
-          16,
-          MediaQuery.of(context).viewInsets.bottom + 12,
-        ),
+    return SafeArea(
+      top: true,
+      bottom: false,
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.88,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            16,
+            12,
+            16,
+            MediaQuery.of(context).viewInsets.bottom + 12,
+          ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -400,6 +404,7 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
               },
             ),
           ],
+        ),
         ),
       ),
     );

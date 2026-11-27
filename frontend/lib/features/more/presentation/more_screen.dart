@@ -14,8 +14,11 @@ import 'package:malvifactor/core/theme/app_theme.dart';
 import 'package:malvifactor/features/analytics/presentation/analytics_detail_screen.dart';
 import 'package:malvifactor/features/auth/providers/auth_provider.dart';
 import 'package:malvifactor/features/dashboard/providers/dashboard_provider.dart';
+import 'package:malvifactor/features/journal/presentation/journal_screen.dart';
 import 'package:malvifactor/features/more/presentation/custom_foods_screen.dart';
 import 'package:malvifactor/features/profile/presentation/profile_screen.dart';
+import 'package:malvifactor/features/profile/providers/profile_provider.dart';
+import 'package:malvifactor/features/recipes/data/recipe_repository.dart';
 import 'package:malvifactor/features/recipes/presentation/recipes_list_screen.dart';
 import 'package:malvifactor/shared/widgets/weight_entry_dialog.dart';
 
@@ -81,6 +84,75 @@ class MoreScreen extends ConsumerWidget {
             child: const Text('Enregistrer'),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _confirmResetData(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    var isResetting = false;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => AlertDialog(
+          backgroundColor: AppColors.surface,
+          title: const Text('Réinitialiser mes données'),
+          content: const Text(
+            'Cette action supprimera définitivement votre journal alimentaire, vos pesées, vos bilans, vos recettes et vos aliments personnalisés, puis relancera l’onboarding.\n\nVotre compte et vos identifiants de connexion seront conservés.',
+            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isResetting ? null : () => Navigator.of(ctx).pop(),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.error,
+                foregroundColor: AppColors.textPrimary,
+              ),
+              onPressed: isResetting
+                  ? null
+                  : () async {
+                      setState(() => isResetting = true);
+                      try {
+                        await ref
+                            .read(dioProvider)
+                            .post<Map<String, dynamic>>('/api/v1/profile/reset-data');
+                        ref.invalidate(profileProvider);
+                        ref.invalidate(dashboardProvider);
+                        ref.invalidate(journalDayProvider);
+                        ref.invalidate(analyticsSeriesProvider);
+                        ref.invalidate(recipesListProvider);
+                        if (ctx.mounted) Navigator.of(ctx).pop();
+                        if (context.mounted) context.go('/onboarding');
+                      } catch (_) {
+                        setState(() => isResetting = false);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Impossible de réinitialiser les données.'),
+                              backgroundColor: AppColors.error,
+                            ),
+                          );
+                        }
+                      }
+                    },
+              child: isResetting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppColors.textPrimary,
+                      ),
+                    )
+                  : const Text('Réinitialiser'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -507,6 +579,14 @@ class MoreScreen extends ConsumerWidget {
                   icon: LucideIcons.keyRound,
                   title: 'Changer le mot de passe',
                   onTap: () => _openChangePasswordDialog(context, ref),
+                ),
+                const Divider(),
+                _MoreTile(
+                  icon: LucideIcons.rotateCcw,
+                  title: 'Réinitialiser mes données',
+                  titleColor: AppColors.warning,
+                  iconColor: AppColors.warning,
+                  onTap: () => _confirmResetData(context, ref),
                 ),
                 const Divider(),
                 _MoreTile(

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:malvifactor/core/config/server_config_provider.dart';
@@ -58,10 +59,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     await ref
         .read(serverConfigProvider.notifier)
         .setServerUrl(_serverUrlController.text);
-    await ref.read(authProvider.notifier).login(
+    final ok = await ref.read(authProvider.notifier).login(
           identifier: _identifierController.text,
           password: _passwordController.text,
         );
+    if (ok) {
+      TextInput.finishAutofillContext(shouldSave: true);
+    }
   }
 
   @override
@@ -76,8 +80,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
-              child: Form(
-                key: _formKey,
+              child: AutofillGroup(
+                child: Form(
+                  key: _formKey,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -132,6 +137,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     TextFormField(
                       controller: _identifierController,
                       keyboardType: TextInputType.emailAddress,
+                      autofillHints: const [
+                        AutofillHints.username,
+                        AutofillHints.email,
+                      ],
                       textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
                         labelText: 'Identifiant (email ou nom d’utilisateur)',
@@ -148,6 +157,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     TextFormField(
                       controller: _passwordController,
                       obscureText: _obscurePassword,
+                      autofillHints: const [AutofillHints.password],
                       textInputAction: TextInputAction.done,
                       onFieldSubmitted: (_) => _submit(),
                       decoration: InputDecoration(
@@ -200,7 +210,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           horizontal: 16,
                           vertical: 2,
                         ),
-                        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        childrenPadding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
                         leading: const Icon(
                           Icons.dns_outlined,
                           color: AppColors.textSecondary,
@@ -248,6 +258,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ),
                     ),
                   ],
+                ),
                 ),
               ),
             ),
