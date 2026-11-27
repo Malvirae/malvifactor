@@ -58,9 +58,7 @@ class _GoalProgressDetailViewState extends State<GoalProgressDetailView> {
     final targetWeight = profile.targetWeightKg ?? fallbackTarget;
     final startWeight = firstHistoryWeight ?? currentWeight ?? targetWeight;
 
-    final windowDays = _range.resolveDays(points.length);
-    final startIdx = math.max(0, points.length - windowDays);
-    final windowPoints = points.sublist(startIdx);
+    final windowPoints = sliceOrPadAnalyticsWindow(points, _range);
 
     // Build delta bars (daily for <= 30d, weekly buckets for > 30d).
     final bars = _buildProgressBars(
@@ -71,7 +69,10 @@ class _GoalProgressDetailViewState extends State<GoalProgressDetailView> {
       weeklyBuckets: windowPoints.length > 30,
     );
 
-    final deltaValues = bars.map((b) => b.deltaKg).toList();
+    final deltaValues = [
+      for (final b in bars)
+        if (b.deltaKg != null) b.deltaKg!,
+    ];
     final maxAbsDelta = deltaValues.isEmpty
         ? 0.5
         : deltaValues.map((v) => v.abs()).reduce(math.max);
@@ -231,7 +232,7 @@ class _GoalProgressDetailViewState extends State<GoalProgressDetailView> {
                 ],
               ),
               const SizedBox(height: 14),
-              if (bars.isEmpty)
+              if (deltaValues.isEmpty)
                 const SizedBox(
                   height: 170,
                   child: Center(
@@ -335,26 +336,28 @@ class _GoalProgressDetailViewState extends State<GoalProgressDetailView> {
                         for (var i = 0; i < bars.length; i++)
                           BarChartGroupData(
                             x: i,
-                            barRods: [
-                              BarChartRodData(
-                                fromY: 0,
-                                toY: bars[i].deltaKg,
-                                color: bars[i].isToward
-                                    ? AppColors.goalToward
-                                    : AppColors.goalAway,
-                                width: bars.length > 22
-                                    ? 5
-                                    : (bars.length > 10 ? 9 : 14),
-                                borderRadius: BorderRadius.vertical(
-                                  top: bars[i].deltaKg >= 0
-                                      ? const Radius.circular(3)
-                                      : Radius.zero,
-                                  bottom: bars[i].deltaKg < 0
-                                      ? const Radius.circular(3)
-                                      : Radius.zero,
-                                ),
-                              ),
-                            ],
+                            barRods: bars[i].deltaKg == null
+                                ? const []
+                                : [
+                                    BarChartRodData(
+                                      fromY: 0,
+                                      toY: bars[i].deltaKg!,
+                                      color: bars[i].isToward
+                                          ? AppColors.goalToward
+                                          : AppColors.goalAway,
+                                      width: bars.length > 22
+                                          ? 4
+                                          : (bars.length > 10 ? 8 : 13),
+                                      borderRadius: BorderRadius.vertical(
+                                        top: bars[i].deltaKg! >= 0
+                                            ? const Radius.circular(3)
+                                            : Radius.zero,
+                                        bottom: bars[i].deltaKg! < 0
+                                            ? const Radius.circular(3)
+                                            : Radius.zero,
+                                      ),
+                                    ),
+                                  ],
                           ),
                       ],
                     ),
@@ -562,7 +565,7 @@ class _ProgressBarEntry {
   });
 
   final DateTime date;
-  final double deltaKg;
+  final double? deltaKg;
   final bool isToward;
 }
 
@@ -573,11 +576,10 @@ List<_ProgressBarEntry> _buildProgressBars({
   required double targetWeight,
   required bool weeklyBuckets,
 }) {
-  final samples = <MapEntry<DateTime, double>>[];
+  final buckets = <MapEntry<DateTime, double?>>[];
   if (!weeklyBuckets) {
     for (final p in windowPoints) {
-      final w = pickWeight(p);
-      if (w != null) samples.add(MapEntry(p.date, w));
+      buckets.add(MapEntry(p.date, pickWeight(p)));
     }
   } else {
     for (var i = 0; i < windowPoints.length; i += 7) {
@@ -587,34 +589,45 @@ List<_ProgressBarEntry> _buildProgressBars({
         for (final p in slice)
           if (pickWeight(p) != null) pickWeight(p)!,
       ];
-      if (weights.isNotEmpty) {
-        final avg = weights.reduce((a, b) => a + b) / weights.length;
-        samples.add(MapEntry(slice.last.date, avg));
-      }
+      final avg = weights.isEmpty
+          ? null
+          : weights.reduce((a, b) => a + b) / weights.length;
+      buckets.add(MapEntry(slice.last.date, avg));
     }
   }
 
-  if (samples.length < 2) return const [];
   final bars = <_ProgressBarEntry>[];
-  for (var i = 1; i < samples.length; i++) {
-    final prev = samples[i - 1].value;
-    final curr = samples[i].value;
-    final delta = curr - prev;
+  double? prevValue;
+  for (var i = 0; i < buckets.length; i++) {
+    final date = buckets[i].key;
+    final curr = buckets[i].value;
+    if (curr == null) {
+      bars.add(_ProgressBarEntry(date: date, deltaKg: null, isToward: true));
+      continue;
+    }
+    if (prevValue == null) {
+      prevValue = curr;
+      bars.add(_ProgressBarEntry(date: date, deltaKg: null, isToward: true));
+      continue;
+    }
+    final delta = curr - prevValue;
     bool isToward;
     if (goalType == 'lose') {
       isToward = delta <= 0;
     } else if (goalType == 'gain') {
       isToward = delta >= 0;
     } else {
-      isToward = (curr - targetWeight).abs() <= (prev - targetWeight).abs() + 0.02;
+      isToward =
+          (curr - targetWeight).abs() <= (prevValue - targetWeight).abs() + 0.02;
     }
     bars.add(
       _ProgressBarEntry(
-        date: samples[i].key,
+        date: date,
         deltaKg: delta,
         isToward: isToward,
       ),
     );
+    prevValue = curr;
   }
   return bars;
 }

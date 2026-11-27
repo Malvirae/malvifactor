@@ -39,10 +39,9 @@ class _WeightTrendDetailViewState extends State<WeightTrendDetailView> {
     }
 
     final series = _buildDailyTrendSeries(points);
-    final windowDays = _range.resolveDays(points.length);
-    final startIdx = math.max(0, points.length - windowDays);
-    final windowPoints = points.sublist(startIdx);
+    final windowPoints = sliceOrPadAnalyticsWindow(points, _range);
     final windowCount = windowPoints.length;
+    final offset = windowCount - points.length;
 
     final trendSpots = <FlSpot>[];
     final upperSpots = <FlSpot>[];
@@ -54,7 +53,8 @@ class _WeightTrendDetailViewState extends State<WeightTrendDetailView> {
     final windowYValues = <double>[];
 
     for (var i = 0; i < windowCount; i++) {
-      final globalIdx = startIdx + i;
+      final globalIdx = i - offset;
+      if (globalIdx < 0 || globalIdx >= points.length) continue;
       final trend = series.interpolatedTrend[globalIdx];
       final raw = windowPoints[i].weightKg;
       if (trend != null) {
@@ -114,8 +114,10 @@ class _WeightTrendDetailViewState extends State<WeightTrendDetailView> {
         ? _scrubIndex!
         : null;
     final isScrubbing = scrubIdx != null;
-    final scrubGlobalIdx = scrubIdx != null ? startIdx + scrubIdx : null;
-    final scrubTrend = scrubGlobalIdx != null
+    final scrubGlobalIdx = scrubIdx != null ? scrubIdx - offset : null;
+    final scrubTrend = (scrubGlobalIdx != null &&
+            scrubGlobalIdx >= 0 &&
+            scrubGlobalIdx < points.length)
         ? series.interpolatedTrend[scrubGlobalIdx]
         : null;
     final scrubRaw = scrubIdx != null ? windowPoints[scrubIdx].weightKg : null;

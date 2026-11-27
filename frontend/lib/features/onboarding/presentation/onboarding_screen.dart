@@ -10,7 +10,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:malvifactor/core/services/health_connect_service.dart';
 import 'package:malvifactor/core/theme/app_theme.dart';
-import 'package:malvifactor/features/analytics/presentation/analytics_detail_screen.dart';
+import 'package:malvifactor/features/analytics/providers/analytics_provider.dart';
 import 'package:malvifactor/features/auth/providers/auth_provider.dart';
 import 'package:malvifactor/features/dashboard/data/dashboard_repository.dart';
 import 'package:malvifactor/features/dashboard/providers/dashboard_provider.dart';
@@ -257,7 +257,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen>
 
   void _finishOnboarding() {
     ref.invalidate(dashboardProvider);
-    ref.invalidate(analyticsSeriesProvider);
+    ref.invalidate(fullMetricContextProvider);
     ref.invalidate(strategyProvider);
     context.go('/dashboard');
   }

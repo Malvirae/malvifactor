@@ -6,7 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:malvifactor/core/theme/app_theme.dart';
-import 'package:malvifactor/features/analytics/presentation/analytics_detail_screen.dart';
 import 'package:malvifactor/features/analytics/presentation/metric_detail_screen.dart';
 import 'package:malvifactor/features/dashboard/data/dashboard_repository.dart';
 import 'package:malvifactor/features/dashboard/providers/dashboard_provider.dart';
@@ -16,12 +15,6 @@ import 'package:malvifactor/shared/widgets/weight_entry_dialog.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
-
-  void _openAnalytics(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const AnalyticsDetailScreen()),
-    );
-  }
 
   void _openMetric(BuildContext context, MetricCategory category) {
     Navigator.of(context).push(
@@ -100,7 +93,6 @@ class DashboardScreen extends ConsumerWidget {
           ),
           data: (data) => _DashboardBody(
             data: data,
-            onOpenAnalytics: () => _openAnalytics(context),
             onOpenMetric: (cat) => _openMetric(context, cat),
           ),
         ),
@@ -112,12 +104,10 @@ class DashboardScreen extends ConsumerWidget {
 class _DashboardBody extends StatelessWidget {
   const _DashboardBody({
     required this.data,
-    required this.onOpenAnalytics,
     required this.onOpenMetric,
   });
 
   final DashboardData data;
-  final VoidCallback onOpenAnalytics;
   final ValueChanged<MetricCategory> onOpenMetric;
 
   @override
@@ -166,24 +156,45 @@ class _DashboardBody extends StatelessWidget {
     final hasFat = fatEntries.isNotEmpty;
     final fatOrRawTitle = hasFat ? 'Masse grasse' : 'Poids brut';
     final fatOrRawValue = hasFat
-        ? '${fatEntries.last.bodyFatPct!.toStringAsFixed(1)} %'
+        ? '${fatEntries.last.bodyFatPct!.toStringAsFixed(1).replaceAll('.', ',')} %'
         : (latestWeight != null
-            ? '${latestWeight.weightKg.toStringAsFixed(1)} kg'
+            ? '${latestWeight.weightKg.toStringAsFixed(1).replaceAll('.', ',')} kg'
             : '--');
-
-    String fatOrRawDelta = 'Dernière mesure';
-    if (hasFat && fatEntries.length >= 2) {
-      final delta =
-          fatEntries.last.bodyFatPct! - fatEntries[fatEntries.length - 2].bodyFatPct!;
-      fatOrRawDelta = '${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(1)} %';
-    } else if (!hasFat && data.weights.length >= 2) {
-      final delta = data.weights.last.weightKg -
-          data.weights[data.weights.length - 2].weightKg;
-      fatOrRawDelta = '${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(1)} kg';
-    }
 
     final today = DateTime.now();
     final todayDate = DateTime(today.year, today.month, today.day);
+    final last7Start = todayDate.subtract(const Duration(days: 6));
+
+    final fatOrRawSpots = <FlSpot>[];
+    if (hasFat) {
+      final fatByDay = <int, double>{};
+      for (final w in fatEntries) {
+        final d = w.measuredAt.toLocal();
+        final dayOnly = DateTime(d.year, d.month, d.day);
+        final idx = dayOnly.difference(last7Start).inDays;
+        if (idx >= 0 && idx < 7 && w.bodyFatPct != null) {
+          fatByDay[idx] = w.bodyFatPct!;
+        }
+      }
+      final sorted = fatByDay.keys.toList()..sort();
+      for (final i in sorted) {
+        fatOrRawSpots.add(FlSpot(i.toDouble(), fatByDay[i]!));
+      }
+    } else {
+      final rawByDay = <int, double>{};
+      for (final w in data.weights) {
+        final d = w.measuredAt.toLocal();
+        final dayOnly = DateTime(d.year, d.month, d.day);
+        final idx = dayOnly.difference(last7Start).inDays;
+        if (idx >= 0 && idx < 7) {
+          rawByDay[idx] = w.weightKg;
+        }
+      }
+      final sorted = rawByDay.keys.toList()..sort();
+      for (final i in sorted) {
+        fatOrRawSpots.add(FlSpot(i.toDouble(), rawByDay[i]!));
+      }
+    }
     final weightByKey = <String, WeightEntryModel>{};
     for (final w in data.weights) {
       weightByKey[_dateKey(w.measuredAt.toLocal())] = w;
@@ -216,92 +227,69 @@ class _DashboardBody extends StatelessWidget {
           remaining: data.dayLogs.remaining,
         ),
         const SizedBox(height: 20),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'Insights & Analyses',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
-            ),
-            InkWell(
-              onTap: onOpenAnalytics,
-              borderRadius: BorderRadius.circular(8),
-              child: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                child: Row(
-                  children: [
-                    Text(
-                      'Tout voir',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: AppColors.textSecondary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    SizedBox(width: 2),
-                    Icon(
-                      LucideIcons.chevronRight,
-                      size: 16,
-                      color: AppColors.textSecondary,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
+        const Text(
+          'Insights & Analyses',
+          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: _InsightSparkCard(
-                title: 'Dépense (TDEE)',
-                subtitle: '7 derniers jours',
-                value: '${data.profile.currentTdeeKcal.round()} kcal',
-                color: AppColors.expenditure,
-                spots: tdeeSpots,
-                onTap: () => onOpenMetric(MetricCategory.expenditure),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _AdherenceInsightCard(
-                adherencePct: adherencePct,
-                onTap: () => onOpenMetric(MetricCategory.goalProgress),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: _InsightSparkCard(
-                title: 'Tendance de poids',
-                subtitle: '7 derniers jours',
-                value: latestTrend != null
-                    ? '${latestTrend.toStringAsFixed(1)} kg'
-                    : '-- kg',
-                color: AppColors.weight,
-                spots: weightSpots,
-                onTap: () => onOpenMetric(MetricCategory.weightTrend),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _SimpleInsightCard(
-                title: fatOrRawTitle,
-                subtitle: fatOrRawDelta,
-                value: fatOrRawValue,
-                color: AppColors.weight,
-                onTap: () => onOpenMetric(
-                  hasFat
-                      ? MetricCategory.bodyFat
-                      : MetricCategory.weightTrend,
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: _InsightSparkCard(
+                  title: 'Dépense (TDEE)',
+                  subtitle: '7 derniers jours',
+                  value: '${data.profile.currentTdeeKcal.round()} kcal',
+                  color: AppColors.expenditure,
+                  spots: tdeeSpots,
+                  onTap: () => onOpenMetric(MetricCategory.expenditure),
                 ),
               ),
-            ),
-          ],
+              const SizedBox(width: 10),
+              Expanded(
+                child: _AdherenceInsightCard(
+                  adherencePct: adherencePct,
+                  onTap: () => onOpenMetric(MetricCategory.goalProgress),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: _InsightSparkCard(
+                  title: 'Tendance de poids',
+                  subtitle: '7 derniers jours',
+                  value: latestTrend != null
+                      ? '${latestTrend.toStringAsFixed(1).replaceAll('.', ',')} kg'
+                      : '-- kg',
+                  color: AppColors.weight,
+                  spots: weightSpots,
+                  onTap: () => onOpenMetric(MetricCategory.weightTrend),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _InsightSparkCard(
+                  title: fatOrRawTitle,
+                  subtitle: '7 derniers jours',
+                  value: fatOrRawValue,
+                  color: AppColors.bodyFat,
+                  spots: fatOrRawSpots,
+                  onTap: () => onOpenMetric(
+                    hasFat
+                        ? MetricCategory.bodyFat
+                        : MetricCategory.weightTrend,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 22),
         const Text(
@@ -427,6 +415,8 @@ class _InsightSparkCard extends StatelessWidget {
                     )
                   : LineChart(
                       LineChartData(
+                        minX: 0,
+                        maxX: 6,
                         minY: minY,
                         maxY: maxY,
                         gridData: const FlGridData(show: false),
@@ -512,17 +502,23 @@ class _AdherenceInsightCard extends StatelessWidget {
               '7 derniers jours',
               style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
             ),
-            const SizedBox(height: 24),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(999),
-              child: LinearProgressIndicator(
-                value: ratio,
-                minHeight: 8,
-                backgroundColor: AppColors.surfaceElevated,
-                valueColor: const AlwaysStoppedAnimation<Color>(AppColors.carbs),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 36,
+              child: Center(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: ratio,
+                    minHeight: 8,
+                    backgroundColor: AppColors.surfaceElevated,
+                    valueColor:
+                        const AlwaysStoppedAnimation<Color>(AppColors.carbs),
+                  ),
+                ),
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 10),
             const Divider(),
             const SizedBox(height: 8),
             Row(
@@ -530,73 +526,6 @@ class _AdherenceInsightCard extends StatelessWidget {
               children: [
                 Text(
                   '${adherencePct.round()} %',
-                  style: AppTheme.numericStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const Icon(
-                  LucideIcons.chevronRight,
-                  size: 16,
-                  color: AppColors.textMuted,
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SimpleInsightCard extends StatelessWidget {
-  const _SimpleInsightCard({
-    required this.title,
-    required this.subtitle,
-    required this.value,
-    required this.color,
-    required this.onTap,
-  });
-
-  final String title;
-  final String subtitle;
-  final String value;
-  final Color color;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        decoration: AppTheme.matteCardDecoration(),
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-            ),
-            Text(
-              subtitle,
-              style: TextStyle(
-                fontSize: 11,
-                color: color,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 46),
-            const Divider(),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  value,
                   style: AppTheme.numericStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,

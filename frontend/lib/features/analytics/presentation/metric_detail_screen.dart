@@ -1,13 +1,10 @@
-import 'dart:math' as math;
-
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:malvifactor/core/theme/app_theme.dart';
-import 'package:malvifactor/features/analytics/presentation/analytics_detail_screen.dart';
+import 'package:malvifactor/features/analytics/presentation/widgets/body_fat_view.dart';
 import 'package:malvifactor/features/analytics/presentation/widgets/expenditure_view.dart';
 import 'package:malvifactor/features/analytics/presentation/widgets/goal_progress_view.dart';
 import 'package:malvifactor/features/analytics/presentation/widgets/weight_trend_view.dart';
@@ -61,43 +58,11 @@ class _MetricDetailScreenState extends ConsumerState<MetricDetailScreen> {
       widget.category == MetricCategory.weightHabits ||
       widget.category == MetricCategory.foodHabits;
 
-  bool get _isMacroFactorRefactoredView =>
-      widget.category == MetricCategory.weightTrend ||
-      widget.category == MetricCategory.expenditure ||
-      widget.category == MetricCategory.goalProgress;
-
   @override
   Widget build(BuildContext context) {
-    final days = ref.watch(analyticsDaysProvider);
-
     return Scaffold(
       appBar: AppBar(title: Text(_title)),
-      body: _isHabitView
-          ? _buildHabitCalendarView()
-          : _isMacroFactorRefactoredView
-              ? _buildFullMetricView()
-              : Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-                      child: SegmentedButton<int>(
-                        segments: const [
-                          ButtonSegment(value: 7, label: Text('7J')),
-                          ButtonSegment(value: 14, label: Text('14J')),
-                          ButtonSegment(value: 30, label: Text('30J')),
-                          ButtonSegment(value: 90, label: Text('90J')),
-                        ],
-                        selected: {days},
-                        onSelectionChanged: (sel) =>
-                            ref.read(analyticsDaysProvider.notifier).state =
-                                sel.first,
-                      ),
-                    ),
-                    Expanded(
-                      child: _buildBodyFatMetricBody(days),
-                    ),
-                  ],
-                ),
+      body: _isHabitView ? _buildHabitCalendarView() : _buildFullMetricView(),
     );
   }
 
@@ -131,36 +96,11 @@ class _MetricDetailScreenState extends ConsumerState<MetricDetailScreen> {
             return ExpenditureDetailView(ctx: ctx);
           case MetricCategory.goalProgress:
             return GoalProgressDetailView(ctx: ctx);
+          case MetricCategory.bodyFat:
+            return BodyFatDetailView(ctx: ctx);
           default:
             return const SizedBox.shrink();
         }
-      },
-    );
-  }
-
-  Widget _buildBodyFatMetricBody(int days) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final start = today.subtract(Duration(days: days - 1));
-    return FutureBuilder<List<WeightEntryModel>>(
-      future: ref.read(dashboardRepositoryProvider).fetchWeights(
-            startDate: start,
-            endDate: today,
-          ),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(color: AppColors.calories),
-          );
-        }
-        if (snapshot.hasError) {
-          return Center(child: Text('Erreur : ${snapshot.error}'));
-        }
-        final weights = (snapshot.data ?? const [])
-            .where((w) =>
-                w.bodyFatPct != null && !w.measuredAt.toLocal().isAfter(now))
-            .toList();
-        return _BodyFatDetailView(entries: weights, days: days);
       },
     );
   }
@@ -471,197 +411,6 @@ class _WeekdayHeader extends StatelessWidget {
         fontWeight: FontWeight.w700,
         color: AppColors.textMuted,
       ),
-    );
-  }
-}
-
-class _EmptyChartState extends StatelessWidget {
-  const _EmptyChartState();
-
-  @override
-  Widget build(BuildContext context) {
-    return const SizedBox(
-      height: 180,
-      child: Center(
-        child: Text(
-          'Pas encore assez de données',
-          style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-        ),
-      ),
-    );
-  }
-}
-
-class _BodyFatDetailView extends StatelessWidget {
-  const _BodyFatDetailView({
-    required this.entries,
-    required this.days,
-  });
-
-  final List<WeightEntryModel> entries;
-  final int days;
-
-  @override
-  Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final endDate = DateTime(now.year, now.month, now.day);
-    final startDate = endDate.subtract(Duration(days: days - 1));
-
-    final spotsByDay = <int, double>{};
-    for (final e in entries) {
-      final local = e.measuredAt.toLocal();
-      final dayOnly = DateTime(local.year, local.month, local.day);
-      final offset = dayOnly.difference(startDate).inDays;
-      if (offset >= 0 && offset < days && e.bodyFatPct != null) {
-        spotsByDay[offset] = e.bodyFatPct!;
-      }
-    }
-    final sortedDays = spotsByDay.keys.toList()..sort();
-    final spots = [
-      for (final d in sortedDays) FlSpot(d.toDouble(), spotsByDay[d]!),
-    ];
-
-    final hasEnough = spots.length >= 2;
-    final values = spots.map((s) => s.y).toList();
-    final minY =
-        values.isEmpty ? 5.0 : math.max(0.0, values.reduce(math.min) - 1.5);
-    final maxY = values.isEmpty ? 35.0 : values.reduce(math.max) + 1.5;
-    final step = math.max(1, (days / 4).floor());
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
-      children: [
-        Container(
-          decoration: AppTheme.matteCardDecoration(),
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                entries.isNotEmpty
-                    ? '${entries.last.bodyFatPct!.toStringAsFixed(1)} %'
-                    : '-- %',
-                style: AppTheme.numericStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.weight,
-                ),
-              ),
-              const SizedBox(height: 16),
-              if (!hasEnough)
-                const _EmptyChartState()
-              else
-                SizedBox(
-                  height: 220,
-                  child: LineChart(
-                    LineChartData(
-                      minX: 0,
-                      maxX: (days - 1).toDouble(),
-                      minY: minY,
-                      maxY: maxY,
-                      gridData: FlGridData(
-                        show: true,
-                        drawVerticalLine: false,
-                        getDrawingHorizontalLine: (_) => const FlLine(
-                          color: AppColors.border,
-                          strokeWidth: 1,
-                        ),
-                      ),
-                      borderData: FlBorderData(show: false),
-                      titlesData: FlTitlesData(
-                        topTitles: const AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
-                        rightTitles: const AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
-                        leftTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            reservedSize: 42,
-                            getTitlesWidget: (val, _) => Text(
-                              val.round().toString(),
-                              style: AppTheme.numericStyle(
-                                fontSize: 10,
-                                color: AppColors.textMuted,
-                              ),
-                            ),
-                          ),
-                        ),
-                        bottomTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            interval: step.toDouble(),
-                            getTitlesWidget: (val, meta) {
-                              final idx = val.toInt();
-                              if (idx < 0 || idx >= days) {
-                                return const SizedBox.shrink();
-                              }
-                              if (val != meta.max &&
-                                  (meta.max - val) <
-                                      meta.appliedInterval * 0.65) {
-                                return const SizedBox.shrink();
-                              }
-                              final d = startDate.add(Duration(days: idx));
-                              return Padding(
-                                padding: const EdgeInsets.only(top: 6),
-                                child: Text(
-                                  DateFormat('dd/MM').format(d),
-                                  style: AppTheme.numericStyle(
-                                    fontSize: 10,
-                                    color: AppColors.textMuted,
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                      lineTouchData: LineTouchData(
-                        touchTooltipData: LineTouchTooltipData(
-                          getTooltipColor: (_) => AppColors.surfaceElevated,
-                          getTooltipItems: (touched) => touched.map((s) {
-                            final d =
-                                startDate.add(Duration(days: s.x.toInt()));
-                            return LineTooltipItem(
-                              '${DateFormat('dd/MM').format(d)} : ${s.y.toStringAsFixed(1)} %',
-                              AppTheme.numericStyle(
-                                fontSize: 12,
-                                color: AppColors.weight,
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                      ),
-                      lineBarsData: [
-                        LineChartBarData(
-                          spots: spots,
-                          isCurved: true,
-                          curveSmoothness: 0.15,
-                          preventCurveOverShooting: true,
-                          color: AppColors.weight,
-                          barWidth: 2.8,
-                          dotData: FlDotData(
-                            show: true,
-                            getDotPainter: (_, __, ___, ____) =>
-                                FlDotCirclePainter(
-                              radius: 3.2,
-                              color: AppColors.surface,
-                              strokeWidth: 2,
-                              strokeColor: AppColors.weight,
-                            ),
-                          ),
-                          belowBarData: BarAreaData(
-                            show: true,
-                            color: AppColors.weight.withValues(alpha: 0.10),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }

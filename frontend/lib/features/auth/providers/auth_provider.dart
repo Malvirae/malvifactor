@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:malvifactor/core/config/server_config_provider.dart';
 import 'package:malvifactor/core/network/dio_client.dart';
 import 'package:malvifactor/core/services/health_connect_service.dart';
-import 'package:malvifactor/features/analytics/presentation/analytics_detail_screen.dart';
+import 'package:malvifactor/features/analytics/providers/analytics_provider.dart';
 import 'package:malvifactor/features/auth/data/auth_repository.dart';
 import 'package:malvifactor/features/dashboard/providers/dashboard_provider.dart';
 
@@ -130,7 +130,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         .syncWeights(interactive: false);
     if (synced) {
       _ref.invalidate(dashboardProvider);
-      _ref.invalidate(analyticsSeriesProvider);
+      _ref.invalidate(fullMetricContextProvider);
     }
   }
 }

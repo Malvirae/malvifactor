@@ -37,9 +37,7 @@ class _ExpenditureDetailViewState extends State<ExpenditureDetailView> {
       );
     }
 
-    final windowDays = _range.resolveDays(points.length);
-    final startIdx = math.max(0, points.length - windowDays);
-    final windowPoints = points.sublist(startIdx);
+    final windowPoints = sliceOrPadAnalyticsWindow(points, _range);
     final windowCount = windowPoints.length;
 
     // Flux band sigma computed from historical TDEE variance (min ±55 kcal).

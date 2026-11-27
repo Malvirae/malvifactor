@@ -11,7 +11,7 @@ import 'package:malvifactor/core/network/dio_client.dart';
 import 'package:malvifactor/core/services/health_connect_service.dart';
 import 'package:malvifactor/core/services/ota_update_service.dart';
 import 'package:malvifactor/core/theme/app_theme.dart';
-import 'package:malvifactor/features/analytics/presentation/analytics_detail_screen.dart';
+import 'package:malvifactor/features/analytics/providers/analytics_provider.dart';
 import 'package:malvifactor/features/auth/providers/auth_provider.dart';
 import 'package:malvifactor/features/dashboard/providers/dashboard_provider.dart';
 import 'package:malvifactor/features/journal/presentation/journal_screen.dart';
@@ -124,7 +124,7 @@ class MoreScreen extends ConsumerWidget {
                         ref.invalidate(profileProvider);
                         ref.invalidate(dashboardProvider);
                         ref.invalidate(journalDayProvider);
-                        ref.invalidate(analyticsSeriesProvider);
+                        ref.invalidate(fullMetricContextProvider);
                         ref.invalidate(recipesListProvider);
                         if (ctx.mounted) Navigator.of(ctx).pop();
                         if (context.mounted) context.go('/onboarding');
@@ -359,7 +359,7 @@ class MoreScreen extends ConsumerWidget {
                               .syncWeights(interactive: true);
                           if (ok) {
                             ref.invalidate(dashboardProvider);
-                            ref.invalidate(analyticsSeriesProvider);
+                            ref.invalidate(fullMetricContextProvider);
                           }
                         },
                   icon: hc.isSyncing

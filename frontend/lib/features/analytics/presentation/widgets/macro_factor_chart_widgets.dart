@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:malvifactor/core/theme/app_theme.dart';
+import 'package:malvifactor/features/dashboard/data/dashboard_repository.dart';
 
 enum AnalyticsRange {
   d7('7J', 7),
@@ -26,6 +27,33 @@ enum AnalyticsRange {
     }
     return days;
   }
+}
+
+/// Anchors [points] to the full [range] window ending at the latest point (today),
+/// padding leading empty days if history is shorter than the selected window.
+List<AnalyticsPointModel> sliceOrPadAnalyticsWindow(
+  List<AnalyticsPointModel> points,
+  AnalyticsRange range,
+) {
+  if (points.isEmpty) return const [];
+  final windowDays = range.resolveDays(points.length);
+  if (points.length >= windowDays) {
+    return points.sublist(points.length - windowDays);
+  }
+  final missing = windowDays - points.length;
+  final firstDate = points.first.date;
+  final prefix = List<AnalyticsPointModel>.generate(missing, (i) {
+    final d = firstDate.subtract(Duration(days: missing - i));
+    return AnalyticsPointModel(
+      date: d,
+      intakeKcal: 0,
+      targetKcal: 0,
+      weightKg: null,
+      trendWeightKg: null,
+      estimatedTdeeKcal: 0,
+    );
+  });
+  return [...prefix, ...points];
 }
 
 String formatFrDecimal(double value, int decimals) {
