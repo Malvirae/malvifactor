@@ -233,12 +233,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           ),
                         ),
                         children: [
-                          TextFormField(
-                            controller: _serverUrlController,
-                            keyboardType: TextInputType.url,
-                            decoration: const InputDecoration(
-                              labelText: 'URL du backend',
-                              hintText: 'http://192.168.1.251:8086',
+                          Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: TextFormField(
+                              controller: _serverUrlController,
+                              keyboardType: TextInputType.url,
+                              decoration: const InputDecoration(
+                                labelText: 'URL du backend',
+                                hintText: 'http://192.168.1.251:8086',
+                              ),
                             ),
                           ),
                           const SizedBox(height: 10),
