@@ -514,7 +514,11 @@ class MoreScreen extends ConsumerWidget {
                   icon: LucideIcons.userCog,
                   title: 'Profil physiologique & Objectifs',
                   onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                    MaterialPageRoute(
+              builder: (_) => const ProfileScreen(
+                mode: ProfileEditMode.physiological,
+              ),
+            ),
                   ),
                 ),
                 const Divider(),

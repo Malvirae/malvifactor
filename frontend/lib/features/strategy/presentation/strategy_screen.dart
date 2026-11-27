@@ -2,7 +2,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -320,7 +319,9 @@ class StrategyScreen extends ConsumerWidget {
                         onPressed: () async {
                           await Navigator.of(context).push(
                             MaterialPageRoute(
-                              builder: (_) => const ProfileScreen(),
+                              builder: (_) => const ProfileScreen(
+                                mode: ProfileEditMode.program,
+                              ),
                             ),
                           );
                           ref.invalidate(strategyProvider);
@@ -334,15 +335,6 @@ class StrategyScreen extends ConsumerWidget {
                         ),
                         icon: const Icon(LucideIcons.pencil, size: 15),
                         label: const Text('Modifier le programme'),
-                      ),
-                      const SizedBox(height: 8),
-                      TextButton.icon(
-                        onPressed: () => context.push('/onboarding'),
-                        icon: const Icon(LucideIcons.sparkles, size: 15),
-                        label: const Text(
-                          'Relancer l’assistant d’initialisation',
-                          style: TextStyle(fontSize: 12),
-                        ),
                       ),
                     ],
                   ),

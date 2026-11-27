@@ -14,9 +14,9 @@ class AppColors {
   static const Color textMuted = Color(0xFF6B7280);
 
   static const Color calories = Color(0xFF38BDF8);
-  static const Color protein = Color(0xFFFB7185);
-  static const Color fat = Color(0xFFFBBF24);
-  static const Color carbs = Color(0xFF34D399);
+  static const Color protein = Color(0xFFFB923C);
+  static const Color fat = Color(0xFFFACC15);
+  static const Color carbs = Color(0xFF4ADE80);
   static const Color weight = Color(0xFFA78BFA);
 
   static const Color success = Color(0xFF34D399);

@@ -3,12 +3,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import 'package:malvifactor/core/theme/app_theme.dart';
-import 'package:malvifactor/features/auth/providers/auth_provider.dart';
 import 'package:malvifactor/features/profile/data/profile_repository.dart';
 import 'package:malvifactor/features/profile/providers/profile_provider.dart';
 
+enum ProfileEditMode {
+  physiological,
+  program,
+}
+
 class ProfileScreen extends ConsumerStatefulWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({
+    super.key,
+    this.mode = ProfileEditMode.physiological,
+  });
+
+  final ProfileEditMode mode;
 
   @override
   ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
@@ -18,7 +27,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   final _formKey = GlobalKey<FormState>();
   final _heightController = TextEditingController();
   final _rateController = TextEditingController();
-  final _refWeightController = TextEditingController();
 
   String _sex = 'M';
   DateTime _birthDate = DateTime(1995, 1, 1);
@@ -35,7 +43,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   void dispose() {
     _heightController.dispose();
     _rateController.dispose();
-    _refWeightController.dispose();
     super.dispose();
   }
 
@@ -71,9 +78,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     final height = double.parse(_heightController.text.replaceAll(',', '.'));
     final rate = double.parse(_rateController.text.replaceAll(',', '.'));
-    final refWeightRaw = _refWeightController.text.trim().replaceAll(',', '.');
-    final refWeight =
-        refWeightRaw.isEmpty ? null : double.tryParse(refWeightRaw);
 
     setState(() => _isSaving = true);
     final error = await ref.read(profileProvider.notifier).saveAndRecalculate(
@@ -86,7 +90,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           proteinPreference: _proteinPreference,
           dietStyle: _dietStyle,
           checkinDay: _checkinDay,
-          referenceWeightKg: refWeight,
         );
     if (!mounted) return;
     setState(() => _isSaving = false);
@@ -94,7 +97,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          error ?? 'Profil enregistré et cibles macros recalculées.',
+          error ??
+              (widget.mode == ProfileEditMode.program
+                  ? 'Programme enregistré et cibles macros recalculées.'
+                  : 'Profil physiologique enregistré.'),
         ),
         backgroundColor: error != null ? AppColors.error : AppColors.success,
       ),
@@ -104,11 +110,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final profileAsync = ref.watch(profileProvider);
-    final user = ref.watch(authProvider).user;
+    final isProgram = widget.mode == ProfileEditMode.program;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Profil & Objectifs'),
+        title: Text(
+          isProgram ? 'Modifier le programme' : 'Profil physiologique',
+        ),
       ),
       body: profileAsync.when(
         loading: () => const Center(
@@ -138,277 +146,255 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
               children: [
-                if (user != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 14),
-                    child: Text(
-                      '${user.displayName} · ${user.email}',
-                      style: const TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 13,
+                if (!isProgram) ...[
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Paramètres physiologiques',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          SegmentedButton<String>(
+                            segments: const [
+                              ButtonSegment(value: 'M', label: Text('Homme')),
+                              ButtonSegment(value: 'F', label: Text('Femme')),
+                            ],
+                            selected: {_sex},
+                            onSelectionChanged: (sel) {
+                              setState(() => _sex = sel.first);
+                            },
+                          ),
+                          const SizedBox(height: 14),
+                          InkWell(
+                            onTap: _pickBirthDate,
+                            borderRadius: BorderRadius.circular(12),
+                            child: InputDecorator(
+                              decoration: const InputDecoration(
+                                labelText: 'Date de naissance',
+                                suffixIcon: Icon(Icons.calendar_today_outlined),
+                              ),
+                              child: Text(
+                                DateFormat('dd/MM/yyyy').format(_birthDate),
+                                style: AppTheme.numericStyle(fontSize: 15),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          TextFormField(
+                            controller: _heightController,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'Taille (cm)',
+                            ),
+                            validator: (v) {
+                              final parsed = double.tryParse(
+                                  (v ?? '').replaceAll(',', '.'));
+                              if (parsed == null ||
+                                  parsed <= 50 ||
+                                  parsed >= 300) {
+                                return 'Taille invalide';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 14),
+                          DropdownButtonFormField<String>(
+                            initialValue: _activityLevel,
+                            decoration: const InputDecoration(
+                              labelText: 'Niveau d’activité physique quotidienne',
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                  value: 'sedentary',
+                                  child: Text('Sédentaire')),
+                              DropdownMenuItem(
+                                  value: 'light',
+                                  child: Text('Légèrement actif')),
+                              DropdownMenuItem(
+                                  value: 'moderate', child: Text('Modéré')),
+                              DropdownMenuItem(
+                                  value: 'active', child: Text('Actif')),
+                              DropdownMenuItem(
+                                  value: 'very_active',
+                                  child: Text('Très actif')),
+                            ],
+                            onChanged: (v) {
+                              if (v != null) setState(() => _activityLevel = v);
+                            },
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Cibles actuelles',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
+                ] else ...[
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Cibles actuelles',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            _TargetChip(
-                              label: 'TDEE',
-                              value: '${profile.currentTdeeKcal.round()} kcal',
-                              color: AppColors.textSecondary,
-                            ),
-                            _TargetChip(
-                              label: 'Cible',
-                              value:
-                                  '${profile.currentCalorieTarget.round()} kcal',
-                              color: AppColors.calories,
-                            ),
-                            _TargetChip(
-                              label: 'P / L / G',
-                              value:
-                                  '${profile.currentProteinG.round()} / ${profile.currentFatG.round()} / ${profile.currentCarbsG.round()} g',
-                              color: AppColors.carbs,
-                            ),
-                          ],
-                        ),
-                      ],
+                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              _TargetChip(
+                                label: 'TDEE',
+                                value: '${profile.currentTdeeKcal.round()} kcal',
+                                color: AppColors.textSecondary,
+                              ),
+                              _TargetChip(
+                                label: 'Cible',
+                                value:
+                                    '${profile.currentCalorieTarget.round()} kcal',
+                                color: AppColors.calories,
+                              ),
+                              _TargetChip(
+                                label: 'P / L / G',
+                                value:
+                                    '${profile.currentProteinG.round()} / ${profile.currentFatG.round()} / ${profile.currentCarbsG.round()} g',
+                                color: AppColors.carbs,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 14),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Paramètres physiologiques',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
+                  const SizedBox(height: 14),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Objectifs & Répartition des macros',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 14),
-                        SegmentedButton<String>(
-                          segments: const [
-                            ButtonSegment(value: 'M', label: Text('Homme')),
-                            ButtonSegment(value: 'F', label: Text('Femme')),
-                          ],
-                          selected: {_sex},
-                          onSelectionChanged: (sel) {
-                            setState(() => _sex = sel.first);
-                          },
-                        ),
-                        const SizedBox(height: 14),
-                        InkWell(
-                          onTap: _pickBirthDate,
-                          borderRadius: BorderRadius.circular(12),
-                          child: InputDecorator(
+                          const SizedBox(height: 14),
+                          DropdownButtonFormField<String>(
+                            initialValue: _goalType,
                             decoration: const InputDecoration(
-                              labelText: 'Date de naissance',
-                              suffixIcon: Icon(Icons.calendar_today_outlined),
+                              labelText: 'Objectif',
                             ),
-                            child: Text(
-                              DateFormat('dd/MM/yyyy').format(_birthDate),
-                              style: AppTheme.numericStyle(fontSize: 15),
-                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                  value: 'lose', child: Text('Perte de poids')),
+                              DropdownMenuItem(
+                                  value: 'maintain', child: Text('Maintien')),
+                              DropdownMenuItem(
+                                  value: 'gain', child: Text('Prise de muscle')),
+                            ],
+                            onChanged: (v) {
+                              if (v != null) setState(() => _goalType = v);
+                            },
                           ),
-                        ),
-                        const SizedBox(height: 14),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextFormField(
-                                controller: _heightController,
-                                keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(
-                                  labelText: 'Taille (cm)',
-                                ),
-                                validator: (v) {
-                                  final parsed = double.tryParse(
-                                      (v ?? '').replaceAll(',', '.'));
-                                  if (parsed == null ||
-                                      parsed <= 50 ||
-                                      parsed >= 300) {
-                                    return 'Taille invalide';
-                                  }
-                                  return null;
-                                },
-                              ),
+                          const SizedBox(height: 14),
+                          TextFormField(
+                            controller: _rateController,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              signed: true,
+                              decimal: true,
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: TextFormField(
-                                controller: _refWeightController,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                        decimal: true),
-                                decoration: const InputDecoration(
-                                  labelText: 'Poids réf. (kg)',
-                                  hintText: 'Optionnel',
-                                ),
-                              ),
+                            decoration: const InputDecoration(
+                              labelText: 'Rythme hebdomadaire (kg / semaine)',
+                              hintText: 'Ex: -0.5, 0.0, 0.25',
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        DropdownButtonFormField<String>(
-                          initialValue: _activityLevel,
-                          decoration: const InputDecoration(
-                            labelText: 'Niveau d’activité',
+                            validator: (v) {
+                              final parsed = double.tryParse(
+                                  (v ?? '').replaceAll(',', '.'));
+                              if (parsed == null || parsed < -2 || parsed > 2) {
+                                return 'Entre -2.0 et +2.0 kg/sem';
+                              }
+                              return null;
+                            },
                           ),
-                          items: const [
-                            DropdownMenuItem(
-                                value: 'sedentary', child: Text('Sédentaire')),
-                            DropdownMenuItem(
-                                value: 'light', child: Text('Légèrement actif')),
-                            DropdownMenuItem(
-                                value: 'moderate', child: Text('Modéré')),
-                            DropdownMenuItem(
-                                value: 'active', child: Text('Actif')),
-                            DropdownMenuItem(
-                                value: 'very_active',
-                                child: Text('Très actif')),
-                          ],
-                          onChanged: (v) {
-                            if (v != null) setState(() => _activityLevel = v);
-                          },
-                        ),
-                      ],
+                          const SizedBox(height: 14),
+                          DropdownButtonFormField<String>(
+                            initialValue: _proteinPreference,
+                            decoration: const InputDecoration(
+                              labelText: 'Apport en protéines',
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                  value: 'moderate',
+                                  child: Text('Modéré (1.7 g/kg)')),
+                              DropdownMenuItem(
+                                  value: 'high', child: Text('Élevé (2.0 g/kg)')),
+                              DropdownMenuItem(
+                                  value: 'extra_high',
+                                  child: Text('Très élevé (2.3 g/kg)')),
+                            ],
+                            onChanged: (v) {
+                              if (v != null) {
+                                setState(() => _proteinPreference = v);
+                              }
+                            },
+                          ),
+                          const SizedBox(height: 14),
+                          DropdownButtonFormField<String>(
+                            initialValue: _dietStyle,
+                            decoration: const InputDecoration(
+                              labelText: 'Répartition des macros',
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                  value: 'balanced', child: Text('Équilibré')),
+                              DropdownMenuItem(
+                                  value: 'low_fat',
+                                  child: Text('Pauvre en lipides')),
+                              DropdownMenuItem(
+                                  value: 'low_carb',
+                                  child: Text('Pauvre en glucides')),
+                            ],
+                            onChanged: (v) {
+                              if (v != null) setState(() => _dietStyle = v);
+                            },
+                          ),
+                          const SizedBox(height: 14),
+                          DropdownButtonFormField<int>(
+                            initialValue: _checkinDay,
+                            decoration: const InputDecoration(
+                              labelText: 'Jour du bilan hebdomadaire',
+                            ),
+                            items: const [
+                              DropdownMenuItem(value: 0, child: Text('Lundi')),
+                              DropdownMenuItem(value: 1, child: Text('Mardi')),
+                              DropdownMenuItem(
+                                  value: 2, child: Text('Mercredi')),
+                              DropdownMenuItem(value: 3, child: Text('Jeudi')),
+                              DropdownMenuItem(
+                                  value: 4, child: Text('Vendredi')),
+                              DropdownMenuItem(value: 5, child: Text('Samedi')),
+                              DropdownMenuItem(
+                                  value: 6, child: Text('Dimanche')),
+                            ],
+                            onChanged: (v) {
+                              if (v != null) setState(() => _checkinDay = v);
+                            },
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 14),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Objectifs & Préférences macros',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        DropdownButtonFormField<String>(
-                          initialValue: _goalType,
-                          decoration: const InputDecoration(
-                            labelText: 'Objectif',
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                                value: 'lose', child: Text('Perte de poids')),
-                            DropdownMenuItem(
-                                value: 'maintain', child: Text('Maintien')),
-                            DropdownMenuItem(
-                                value: 'gain', child: Text('Prise de masse')),
-                          ],
-                          onChanged: (v) {
-                            if (v != null) setState(() => _goalType = v);
-                          },
-                        ),
-                        const SizedBox(height: 14),
-                        TextFormField(
-                          controller: _rateController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            signed: true,
-                            decimal: true,
-                          ),
-                          decoration: const InputDecoration(
-                            labelText: 'Rythme cible (kg / semaine)',
-                            hintText: 'Ex: -0.5, 0.0, 0.25',
-                          ),
-                          validator: (v) {
-                            final parsed = double.tryParse(
-                                (v ?? '').replaceAll(',', '.'));
-                            if (parsed == null || parsed < -2 || parsed > 2) {
-                              return 'Entre -2.0 et +2.0 kg/sem';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 14),
-                        DropdownButtonFormField<String>(
-                          initialValue: _proteinPreference,
-                          decoration: const InputDecoration(
-                            labelText: 'Apport en protéines',
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                                value: 'moderate',
-                                child: Text('Modéré (1.7 g/kg)')),
-                            DropdownMenuItem(
-                                value: 'high', child: Text('Élevé (2.0 g/kg)')),
-                            DropdownMenuItem(
-                                value: 'extra_high',
-                                child: Text('Très élevé (2.3 g/kg)')),
-                          ],
-                          onChanged: (v) {
-                            if (v != null) {
-                              setState(() => _proteinPreference = v);
-                            }
-                          },
-                        ),
-                        const SizedBox(height: 14),
-                        DropdownButtonFormField<String>(
-                          initialValue: _dietStyle,
-                          decoration: const InputDecoration(
-                            labelText: 'Style alimentaire',
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                                value: 'balanced', child: Text('Équilibré')),
-                            DropdownMenuItem(
-                                value: 'low_fat', child: Text('Pauvre en lipides')),
-                            DropdownMenuItem(
-                                value: 'low_carb',
-                                child: Text('Pauvre en glucides')),
-                          ],
-                          onChanged: (v) {
-                            if (v != null) setState(() => _dietStyle = v);
-                          },
-                        ),
-                        const SizedBox(height: 14),
-                        DropdownButtonFormField<int>(
-                          initialValue: _checkinDay,
-                          decoration: const InputDecoration(
-                            labelText: 'Jour du bilan hebdomadaire',
-                          ),
-                          items: const [
-                            DropdownMenuItem(value: 0, child: Text('Lundi')),
-                            DropdownMenuItem(value: 1, child: Text('Mardi')),
-                            DropdownMenuItem(value: 2, child: Text('Mercredi')),
-                            DropdownMenuItem(value: 3, child: Text('Jeudi')),
-                            DropdownMenuItem(value: 4, child: Text('Vendredi')),
-                            DropdownMenuItem(value: 5, child: Text('Samedi')),
-                            DropdownMenuItem(value: 6, child: Text('Dimanche')),
-                          ],
-                          onChanged: (v) {
-                            if (v != null) setState(() => _checkinDay = v);
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                ],
                 const SizedBox(height: 20),
                 ElevatedButton.icon(
                   onPressed: _isSaving ? null : _save,
@@ -421,24 +407,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             color: AppColors.background,
                           ),
                         )
-                      : const Icon(Icons.calculate_outlined),
-                  label: const Text('Enregistrer et recalculer mes macros'),
-                ),
-                const SizedBox(height: 14),
-                OutlinedButton.icon(
-                  onPressed: () => ref.read(authProvider.notifier).logout(),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
-                    foregroundColor: AppColors.error,
-                    side: BorderSide(
-                      color: AppColors.error.withValues(alpha: 0.5),
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                      : Icon(
+                          isProgram
+                              ? Icons.calculate_outlined
+                              : Icons.save_outlined,
+                        ),
+                  label: Text(
+                    isProgram
+                        ? 'Enregistrer et recalculer mes macros'
+                        : 'Enregistrer le profil physiologique',
                   ),
-                  icon: const Icon(Icons.logout_rounded),
-                  label: const Text('Se déconnecter'),
                 ),
               ],
             ),

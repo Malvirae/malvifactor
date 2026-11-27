@@ -60,15 +60,42 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
   final _quickFatController = TextEditingController(text: '0');
   final _quickCarbsController = TextEditingController(text: '0');
 
+  final _quickKcalFocusNode = FocusNode();
+  final _quickProteinFocusNode = FocusNode();
+  final _quickFatFocusNode = FocusNode();
+  final _quickCarbsFocusNode = FocusNode();
+
   Timer? _debounce;
   int _tabIndex = 0; // 0: Aliments, 1: Recettes, 2: Ajout libre
   List<FoodModel> _foods = const [];
   bool _loadingFoods = true;
   bool _submittingQuick = false;
 
+  void _attachSelectAllOnFocus(
+    FocusNode node,
+    TextEditingController controller,
+  ) {
+    node.addListener(() {
+      if (node.hasFocus && controller.text.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (node.hasFocus && controller.text.isNotEmpty) {
+            controller.selection = TextSelection(
+              baseOffset: 0,
+              extentOffset: controller.text.length,
+            );
+          }
+        });
+      }
+    });
+  }
+
   @override
   void initState() {
     super.initState();
+    _attachSelectAllOnFocus(_quickKcalFocusNode, _quickKcalController);
+    _attachSelectAllOnFocus(_quickProteinFocusNode, _quickProteinController);
+    _attachSelectAllOnFocus(_quickFatFocusNode, _quickFatController);
+    _attachSelectAllOnFocus(_quickCarbsFocusNode, _quickCarbsController);
     _searchFoods('');
     if (widget.openScannerDirectly) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _openBarcodeScanner());
@@ -84,6 +111,10 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
     _quickProteinController.dispose();
     _quickFatController.dispose();
     _quickCarbsController.dispose();
+    _quickKcalFocusNode.dispose();
+    _quickProteinFocusNode.dispose();
+    _quickFatFocusNode.dispose();
+    _quickCarbsFocusNode.dispose();
     super.dispose();
   }
 
@@ -574,9 +605,15 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
         const SizedBox(height: 12),
         TextField(
           controller: _quickKcalController,
+          focusNode: _quickKcalFocusNode,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             labelText: 'Calories (kcal)',
+            labelStyle: const TextStyle(color: AppColors.calories),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: AppColors.calories, width: 1.5),
+            ),
           ),
         ),
         const SizedBox(height: 12),
@@ -585,27 +622,54 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
             Expanded(
               child: TextField(
                 controller: _quickProteinController,
+                focusNode: _quickProteinFocusNode,
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Protéines (g)'),
+                decoration: InputDecoration(
+                  labelText: 'Protéines (g)',
+                  labelStyle: const TextStyle(color: AppColors.protein),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide:
+                        const BorderSide(color: AppColors.protein, width: 1.5),
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: TextField(
                 controller: _quickFatController,
+                focusNode: _quickFatFocusNode,
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Lipides (g)'),
+                decoration: InputDecoration(
+                  labelText: 'Lipides (g)',
+                  labelStyle: const TextStyle(color: AppColors.fat),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide:
+                        const BorderSide(color: AppColors.fat, width: 1.5),
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: TextField(
                 controller: _quickCarbsController,
+                focusNode: _quickCarbsFocusNode,
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Glucides (g)'),
+                decoration: InputDecoration(
+                  labelText: 'Glucides (g)',
+                  labelStyle: const TextStyle(color: AppColors.carbs),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide:
+                        const BorderSide(color: AppColors.carbs, width: 1.5),
+                  ),
+                ),
               ),
             ),
           ],

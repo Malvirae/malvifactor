@@ -134,6 +134,8 @@ class _WeightChartCard extends StatelessWidget {
                   )
                 : LineChart(
                     LineChartData(
+                      minX: 0,
+                      maxX: points.isEmpty ? 0.0 : (points.length - 1).toDouble(),
                       minY: minY,
                       maxY: maxY,
                       gridData: FlGridData(
@@ -243,6 +245,8 @@ class _TdeeChartCard extends StatelessWidget {
                 ? const Center(child: Text('Données indisponibles'))
                 : LineChart(
                     LineChartData(
+                      minX: 0,
+                      maxX: points.isEmpty ? 0.0 : (points.length - 1).toDouble(),
                       minY: minY,
                       maxY: maxY,
                       gridData: FlGridData(

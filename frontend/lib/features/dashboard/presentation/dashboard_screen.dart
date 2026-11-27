@@ -8,7 +8,9 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:malvifactor/core/theme/app_theme.dart';
 import 'package:malvifactor/features/analytics/presentation/analytics_detail_screen.dart';
 import 'package:malvifactor/features/analytics/presentation/metric_detail_screen.dart';
+import 'package:malvifactor/features/dashboard/data/dashboard_repository.dart';
 import 'package:malvifactor/features/dashboard/providers/dashboard_provider.dart';
+import 'package:malvifactor/shared/widgets/habit_day_detail_sheet.dart';
 import 'package:malvifactor/shared/widgets/macro_rings_card.dart';
 import 'package:malvifactor/shared/widgets/weight_entry_dialog.dart';
 
@@ -181,18 +183,26 @@ class _DashboardBody extends StatelessWidget {
     }
 
     final today = DateTime.now();
-    final weightDaysSet = data.weights
-        .map((w) => _dateKey(w.measuredAt.toLocal()))
-        .toSet();
-    final logDaysSet = data.logsSummary
-        .where((s) => s.entriesCount > 0)
-        .map((s) => _dateKey(s.date))
-        .toSet();
+    final todayDate = DateTime(today.year, today.month, today.day);
+    final weightByKey = <String, WeightEntryModel>{};
+    for (final w in data.weights) {
+      weightByKey[_dateKey(w.measuredAt.toLocal())] = w;
+    }
+    final weightDaysSet = weightByKey.keys.toSet();
 
-    final last30Keys = List.generate(
+    final logSummaryByKey = <String, DaySummaryModel>{};
+    for (final s in data.logsSummary) {
+      if (s.entriesCount > 0) {
+        logSummaryByKey[_dateKey(s.date)] = s;
+      }
+    }
+    final logDaysSet = logSummaryByKey.keys.toSet();
+
+    final last30Dates = List.generate(
       30,
-      (i) => _dateKey(today.subtract(Duration(days: 29 - i))),
+      (i) => todayDate.subtract(Duration(days: 29 - i)),
     );
+    final last30Keys = last30Dates.map(_dateKey).toList();
     final last7Keys = last30Keys.sublist(23);
     final weightThisWeek = last7Keys.where(weightDaysSet.contains).length;
     final logsThisWeek = last7Keys.where(logDaysSet.contains).length;
@@ -310,6 +320,17 @@ class _DashboardBody extends StatelessWidget {
                 activeColor: AppColors.carbs,
                 weekCount: weightThisWeek,
                 onTap: () => onOpenMetric(MetricCategory.weightHabits),
+                onCellTap: (idx) {
+                  final key = last30Keys[idx];
+                  final entry = weightByKey[key];
+                  if (entry != null) {
+                    showWeightHabitDetailSheet(
+                      context,
+                      date: last30Dates[idx],
+                      entry: entry,
+                    );
+                  }
+                },
               ),
             ),
             const SizedBox(width: 10),
@@ -322,6 +343,18 @@ class _DashboardBody extends StatelessWidget {
                 activeColor: AppColors.calories,
                 weekCount: logsThisWeek,
                 onTap: () => onOpenMetric(MetricCategory.foodHabits),
+                onCellTap: (idx) {
+                  final key = last30Keys[idx];
+                  final summary = logSummaryByKey[key];
+                  if (summary != null) {
+                    showFoodHabitDetailSheet(
+                      context,
+                      date: last30Dates[idx],
+                      summary: summary,
+                      targets: data.dayLogs.targets,
+                    );
+                  }
+                },
               ),
             ),
           ],
@@ -592,6 +625,7 @@ class _HabitHeatmapCard extends StatelessWidget {
     required this.activeColor,
     required this.weekCount,
     required this.onTap,
+    required this.onCellTap,
   });
 
   final String title;
@@ -601,6 +635,7 @@ class _HabitHeatmapCard extends StatelessWidget {
   final Color activeColor;
   final int weekCount;
   final VoidCallback onTap;
+  final ValueChanged<int> onCellTap;
 
   @override
   Widget build(BuildContext context) {
@@ -638,11 +673,17 @@ class _HabitHeatmapCard extends StatelessWidget {
               itemCount: keys.length,
               itemBuilder: (_, idx) {
                 final active = activeKeys.contains(keys[idx]);
-                return Container(
+                final cell = Container(
                   decoration: BoxDecoration(
                     color: active ? activeColor : AppColors.border,
                     borderRadius: BorderRadius.circular(3),
                   ),
+                );
+                if (!active) return cell;
+                return GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => onCellTap(idx),
+                  child: cell,
                 );
               },
             ),
