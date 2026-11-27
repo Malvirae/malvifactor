@@ -78,7 +78,15 @@ class OtaUpdateService {
       ),
     );
 
-    final res = await dio.get<Map<String, dynamic>>(_githubLatestReleaseUrl);
+    final Response<Map<String, dynamic>> res;
+    try {
+      res = await dio.get<Map<String, dynamic>>(_githubLatestReleaseUrl);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) {
+        return null;
+      }
+      rethrow;
+    }
     final data = res.data;
     if (data == null) return null;
 

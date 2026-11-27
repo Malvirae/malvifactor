@@ -14,6 +14,15 @@ class MalviFactorLogo extends StatelessWidget {
   final double size;
   final double progress;
 
+  static void paintLogo(
+    Canvas canvas,
+    Size size, {
+    double progress = 1.0,
+  }) {
+    _MalviFactorLogoPainter(progress: progress.clamp(0.0, 1.0))
+        .paint(canvas, size);
+  }
+
   @override
   Widget build(BuildContext context) {
     return SizedBox(

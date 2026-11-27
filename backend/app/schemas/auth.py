@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
 class LoginRequest(BaseModel):
@@ -22,6 +22,13 @@ class RefreshRequest(BaseModel):
     """Refresh token payload."""
 
     refresh_token: str
+
+
+class ChangePasswordRequest(BaseModel):
+    """Password change payload for an authenticated user."""
+
+    current_password: str
+    new_password: str = Field(..., min_length=8)
 
 
 class TokenResponse(BaseModel):

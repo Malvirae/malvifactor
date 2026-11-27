@@ -81,6 +81,9 @@ class HealthConnectNotifier extends StateNotifier<HealthConnectState> {
       final health = Health();
       await health.configure();
 
+      final available = await health.isHealthConnectAvailable();
+      if (!available) return (null, null);
+
       const types = [
         HealthDataType.WEIGHT,
         HealthDataType.BODY_FAT_PERCENTAGE,
@@ -144,6 +147,20 @@ class HealthConnectNotifier extends StateNotifier<HealthConnectState> {
     try {
       final health = Health();
       await health.configure();
+
+      final sdkStatus = await health.getHealthConnectSdkStatus();
+      if (sdkStatus != HealthConnectSdkStatus.sdkAvailable) {
+        state = state.copyWith(
+          isSyncing: false,
+          statusMessage: interactive
+              ? (sdkStatus ==
+                      HealthConnectSdkStatus.sdkUnavailableProviderUpdateRequired
+                  ? 'Health Connect nécessite une mise à jour via le Play Store.'
+                  : 'Health Connect n’est pas disponible sur cet appareil.')
+              : null,
+        );
+        return false;
+      }
 
       const types = [
         HealthDataType.WEIGHT,

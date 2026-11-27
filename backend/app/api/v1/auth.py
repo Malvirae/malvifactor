@@ -12,10 +12,12 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     decode_token,
+    hash_password,
     verify_password,
 )
 from app.models.user import User
 from app.schemas.auth import (
+    ChangePasswordRequest,
     LoginRequest,
     RefreshRequest,
     TokenResponse,
@@ -91,3 +93,21 @@ async def read_current_user(
 ) -> User:
     """Return the currently authenticated user's account details."""
     return current_user
+
+
+@router.post("/change-password")
+async def change_password(
+    payload: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Update the authenticated user's password after verifying the current one."""
+    if not verify_password(payload.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+
+    current_user.hashed_password = hash_password(payload.new_password)
+    await db.commit()
+    return {"message": "Password updated successfully"}

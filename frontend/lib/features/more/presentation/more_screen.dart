@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,6 +7,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:malvifactor/core/config/journal_preferences_provider.dart';
 import 'package:malvifactor/core/config/server_config_provider.dart';
+import 'package:malvifactor/core/network/dio_client.dart';
 import 'package:malvifactor/core/services/health_connect_service.dart';
 import 'package:malvifactor/core/services/ota_update_service.dart';
 import 'package:malvifactor/core/theme/app_theme.dart';
@@ -79,6 +81,142 @@ class MoreScreen extends ConsumerWidget {
             child: const Text('Enregistrer'),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _openChangePasswordDialog(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final currentCtrl = TextEditingController();
+    final newCtrl = TextEditingController();
+    final confirmCtrl = TextEditingController();
+    String? errorText;
+    var isSaving = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => AlertDialog(
+          backgroundColor: AppColors.surface,
+          title: const Text('Changer le mot de passe'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                controller: currentCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Mot de passe actuel',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: newCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Nouveau mot de passe (min. 8 car.)',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: confirmCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Confirmer le nouveau mot de passe',
+                ),
+              ),
+              if (errorText != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  errorText!,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.error,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSaving ? null : () => Navigator.of(ctx).pop(),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      final current = currentCtrl.text;
+                      final next = newCtrl.text;
+                      final confirm = confirmCtrl.text;
+                      if (current.isEmpty) {
+                        setState(() => errorText = 'Saisissez votre mot de passe actuel.');
+                        return;
+                      }
+                      if (next.length < 8) {
+                        setState(() => errorText = 'Minimum 8 caractères requis.');
+                        return;
+                      }
+                      if (next != confirm) {
+                        setState(() => errorText = 'Les mots de passe ne correspondent pas.');
+                        return;
+                      }
+
+                      setState(() {
+                        isSaving = true;
+                        errorText = null;
+                      });
+
+                      try {
+                        await ref.read(dioProvider).post<Map<String, dynamic>>(
+                          '/api/v1/auth/change-password',
+                          data: {
+                            'current_password': current,
+                            'new_password': next,
+                          },
+                        );
+                        if (ctx.mounted) Navigator.of(ctx).pop();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Mot de passe mis à jour.'),
+                              backgroundColor: AppColors.success,
+                            ),
+                          );
+                        }
+                      } on DioException catch (e) {
+                        final detail = (e.response?.data is Map)
+                            ? (e.response?.data['detail']?.toString() ?? '')
+                            : '';
+                        setState(() {
+                          isSaving = false;
+                          errorText = detail.isNotEmpty
+                              ? detail
+                              : 'Impossible de modifier le mot de passe.';
+                        });
+                      } catch (_) {
+                        setState(() {
+                          isSaving = false;
+                          errorText = 'Erreur lors du changement de mot de passe.';
+                        });
+                      }
+                    },
+              child: isSaving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppColors.background,
+                      ),
+                    )
+                  : const Text('Mettre à jour'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -363,6 +501,12 @@ class MoreScreen extends ConsumerWidget {
                       ),
                     );
                   },
+                ),
+                const Divider(),
+                _MoreTile(
+                  icon: LucideIcons.keyRound,
+                  title: 'Changer le mot de passe',
+                  onTap: () => _openChangePasswordDialog(context, ref),
                 ),
                 const Divider(),
                 _MoreTile(

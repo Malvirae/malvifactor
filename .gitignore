@@ -9,6 +9,9 @@ key.properties
 # Build & Runtime
 build/
 data/
+*.sql
+*.sqlite
+*.db
 __pycache__/
 *.py[cod]
 .venv/
