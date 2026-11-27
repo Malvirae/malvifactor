@@ -1,7 +1,7 @@
 name: malvifactor
 description: Application personnelle de suivi nutritionnel et de calcul adaptatif du TDEE.
 publish_to: "none"
-version: 1.0.4+5
+version: 1.0.5+6
 
 environment:
   sdk: ">=3.5.0 <4.0.0"

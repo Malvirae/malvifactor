@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import 'package:malvifactor/core/router/app_router.dart';
 import 'package:malvifactor/core/services/ota_update_service.dart';
 import 'package:malvifactor/core/theme/app_theme.dart';
 import 'package:malvifactor/features/analytics/presentation/analytics_detail_screen.dart';
@@ -52,10 +53,14 @@ class _MainShellState extends ConsumerState<MainShell> {
       ref.read(profileProvider.notifier).load(silent: true);
     }
 
+    final isSameTab = index == widget.navigationShell.currentIndex;
     widget.navigationShell.goBranch(
       index,
-      initialLocation: index == widget.navigationShell.currentIndex,
+      initialLocation: isSameTab,
     );
+    if (isSameTab) {
+      branchNavigatorKeys[index].currentState?.popUntil((r) => r.isFirst);
+    }
   }
 
   @override

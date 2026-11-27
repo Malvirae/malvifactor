@@ -512,7 +512,7 @@ class MoreScreen extends ConsumerWidget {
                 const Divider(),
                 _MoreTile(
                   icon: LucideIcons.userCog,
-                  title: 'Profil physiologique & Objectifs',
+                  title: 'Profil physiologique',
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
               builder: (_) => const ProfileScreen(

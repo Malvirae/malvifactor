@@ -15,6 +15,13 @@ import 'package:malvifactor/features/strategy/presentation/strategy_screen.dart'
 import 'package:malvifactor/shared/widgets/main_shell.dart';
 import 'package:malvifactor/shared/widgets/malvifactor_logo.dart';
 
+final List<GlobalKey<NavigatorState>> branchNavigatorKeys = [
+  GlobalKey<NavigatorState>(debugLabel: 'dashboardBranch'),
+  GlobalKey<NavigatorState>(debugLabel: 'journalBranch'),
+  GlobalKey<NavigatorState>(debugLabel: 'strategyBranch'),
+  GlobalKey<NavigatorState>(debugLabel: 'moreBranch'),
+];
+
 class _RouterRefreshNotifier extends ChangeNotifier {
   _RouterRefreshNotifier(Ref ref) {
     ref.listen<AuthState>(authProvider, (_, __) => notifyListeners());
@@ -79,6 +86,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         },
         branches: [
           StatefulShellBranch(
+            navigatorKey: branchNavigatorKeys[0],
             routes: [
               GoRoute(
                 path: '/dashboard',
@@ -87,6 +95,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ],
           ),
           StatefulShellBranch(
+            navigatorKey: branchNavigatorKeys[1],
             routes: [
               GoRoute(
                 path: '/journal',
@@ -95,6 +104,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ],
           ),
           StatefulShellBranch(
+            navigatorKey: branchNavigatorKeys[2],
             routes: [
               GoRoute(
                 path: '/strategy',
@@ -103,6 +113,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ],
           ),
           StatefulShellBranch(
+            navigatorKey: branchNavigatorKeys[3],
             routes: [
               GoRoute(
                 path: '/more',
