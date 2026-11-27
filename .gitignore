@@ -1,0 +1,26 @@
+# Secrets & Signing
+*.jks
+*.keystore
+key.properties
+.env
+*.env
+!.env.example
+
+# Build & Runtime
+build/
+data/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Flutter / IDE
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+*.iml
+.idea/
+.vscode/
+frontend/build/
+frontend/.dart_tool/
