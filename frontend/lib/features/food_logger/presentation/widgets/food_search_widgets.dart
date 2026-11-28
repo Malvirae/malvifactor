@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:malvifactor/core/theme/app_theme.dart';
+import 'package:malvifactor/core/widgets/food_category_avatar.dart';
 
 enum FoodSourceFilter {
   all('Tous'),
@@ -151,6 +152,7 @@ class FoodSearchResultRow extends StatelessWidget {
     required this.brand,
     this.stores,
     required this.source,
+    this.category,
     required this.quantityG,
     required this.kcal,
     required this.proteinG,
@@ -168,6 +170,7 @@ class FoodSearchResultRow extends StatelessWidget {
   final String? brand;
   final String? stores;
   final String source;
+  final String? category;
   final double quantityG;
   final double kcal;
   final double proteinG;
@@ -182,27 +185,6 @@ class FoodSearchResultRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final IconData icon;
-    final Color iconColor;
-    switch (source) {
-      case 'ciqual':
-        icon = LucideIcons.leaf;
-        iconColor = const Color(0xFF34D399);
-      case 'off':
-      case 'openfoodfacts':
-        icon = Icons.qr_code_2_rounded;
-        iconColor = const Color(0xFFFBBF24);
-      case 'recipe':
-        icon = LucideIcons.chefHat;
-        iconColor = const Color(0xFF22D3EE);
-      case 'quick_add':
-        icon = LucideIcons.zap;
-        iconColor = AppColors.calories;
-      default:
-        icon = LucideIcons.bookmark;
-        iconColor = AppColors.weight;
-    }
-
     final qtyLabel = customQuantityText ??
         (quantityG % 1 == 0
             ? '${quantityG.round()} g'
@@ -221,14 +203,12 @@ class FoodSearchResultRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
         child: Row(
           children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: iconColor.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, size: 17, color: iconColor),
+            FoodCategoryAvatar(
+              name: name,
+              source: source,
+              category: category,
+              size: 38,
+              borderRadius: 10,
             ),
             const SizedBox(width: 11),
             Expanded(

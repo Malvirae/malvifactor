@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.api.v1.profile import _get_or_create_profile
 from app.core.database import get_db
-from app.models.food import Food, Recipe
+from app.models.food import Food, FoodSource, Recipe
 from app.models.tracking import FoodLog
 from app.models.user import User
 from app.services.tdee_engine import get_targets_for_date
@@ -38,12 +38,21 @@ def _serialize_log_item(
     if food is not None:
         display_name = food.name
         brand = food.brand
+        stores = food.stores
+        source = "openfoodfacts" if food.source == FoodSource.OFF else food.source.value
+        category = None
     elif recipe is not None:
         display_name = recipe.name
         brand = None
+        stores = None
+        source = "recipe"
+        category = None
     else:
         display_name = log.custom_name or "Ajout rapide"
         brand = None
+        stores = None
+        source = "quick_add"
+        category = None
 
     recipe_servings: float | None = None
     recipe_total_weight_g: float | None = None
@@ -63,6 +72,9 @@ def _serialize_log_item(
         custom_name=log.custom_name,
         display_name=display_name,
         brand=brand,
+        stores=stores,
+        source=source,
+        category=category,
         quantity_g=log.quantity_g,
         kcal=log.kcal,
         protein_g=log.protein_g,

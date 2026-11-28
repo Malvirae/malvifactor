@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:malvifactor/core/theme/app_theme.dart';
+import 'package:malvifactor/core/widgets/food_category_avatar.dart';
 import 'package:malvifactor/features/food_logger/data/food_repository.dart';
 import 'package:malvifactor/features/food_logger/presentation/barcode_review_sheet.dart';
 import 'package:malvifactor/features/food_logger/presentation/barcode_scanner_screen.dart';
@@ -487,12 +488,18 @@ class _RecipeEditorScreenState extends ConsumerState<RecipeEditorScreen> {
                     ..._ingredients.asMap().entries.map((entry) {
                       final idx = entry.key;
                       final ing = entry.value;
-                      final kcal =
-                          ing.food.kcalPer100g * ing.quantityG / 100.0;
+                      final factor = ing.quantityG / 100.0;
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: Card(
                           child: ListTile(
+                            leading: FoodCategoryAvatar(
+                              name: ing.food.name,
+                              source: ing.food.source,
+                              category: ing.food.category,
+                              size: 38,
+                              borderRadius: 10,
+                            ),
                             title: Text(
                               ing.food.name,
                               maxLines: 1,
@@ -502,11 +509,16 @@ class _RecipeEditorScreenState extends ConsumerState<RecipeEditorScreen> {
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
-                            subtitle: Text(
-                              '${ing.quantityG.round()} g · ${kcal.round()} kcal',
-                              style: AppTheme.numericStyle(
+                            subtitle: Padding(
+                              padding: const EdgeInsets.only(top: 3),
+                              child: ColoredMacroInlineRow(
+                                kcal: ing.food.kcalPer100g * factor,
+                                proteinG: ing.food.proteinPer100g * factor,
+                                fatG: ing.food.fatPer100g * factor,
+                                carbsG: ing.food.carbsPer100g * factor,
+                                suffix: ' • ${formatGramsText(ing.quantityG)}',
                                 fontSize: 12,
-                                color: AppColors.textSecondary,
+                                macroDecimals: 0,
                               ),
                             ),
                             trailing: IconButton(

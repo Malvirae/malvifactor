@@ -114,7 +114,7 @@ async def _attach_last_quantities(
 @router.get("/suggestions", response_model=FoodSuggestionsResponse)
 async def get_food_suggestions(
     target_hour: int | None = Query(default=None, ge=0, le=23),
-    limit_picks: int = Query(default=8, ge=1, le=30),
+    limit_picks: int = Query(default=5, ge=1, le=5),
     limit_recent: int = Query(default=30, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -344,9 +344,10 @@ async def get_food_suggestions(
             **portion_fields,
         )
 
+    max_picks = min(limit_picks, 5)
     time_picks: list[FoodSuggestionItem] = []
     for k in sorted_pick_keys:
-        if len(time_picks) >= limit_picks:
+        if len(time_picks) >= max_picks:
             break
         built = _build_item(k, for_window=True)
         if built is not None:

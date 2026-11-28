@@ -37,6 +37,9 @@ class FoodLogItemModel {
     this.customName,
     required this.displayName,
     this.brand,
+    this.stores,
+    this.source,
+    this.category,
     required this.quantityG,
     required this.kcal,
     required this.proteinG,
@@ -55,6 +58,9 @@ class FoodLogItemModel {
   final String? customName;
   final String displayName;
   final String? brand;
+  final String? stores;
+  final String? source;
+  final String? category;
   final double quantityG;
   final double kcal;
   final double proteinG;
@@ -65,15 +71,25 @@ class FoodLogItemModel {
   final double? recipeServingWeightG;
 
   factory FoodLogItemModel.fromJson(Map<String, dynamic> json) {
+    final foodId = json['food_id'] as String?;
+    final recipeId = json['recipe_id'] as String?;
+    final rawSource = json['source'] as String?;
+    final inferredSource = rawSource ??
+        (recipeId != null
+            ? 'recipe'
+            : (foodId == null ? 'quick_add' : null));
     return FoodLogItemModel(
       id: json['id'] as String,
       loggedDate: json['logged_date'] as String,
       loggedTime: json['logged_time'] as String,
-      foodId: json['food_id'] as String?,
-      recipeId: json['recipe_id'] as String?,
+      foodId: foodId,
+      recipeId: recipeId,
       customName: json['custom_name'] as String?,
       displayName: json['display_name'] as String,
       brand: json['brand'] as String?,
+      stores: json['stores'] as String?,
+      source: inferredSource,
+      category: json['category'] as String?,
       quantityG: (json['quantity_g'] as num).toDouble(),
       kcal: (json['kcal'] as num).toDouble(),
       proteinG: (json['protein_g'] as num).toDouble(),

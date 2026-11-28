@@ -65,6 +65,7 @@ class FoodResponse(FoodBase):
 
     id: UUID
     source: str
+    category: str | None = None
     external_id: str | None
     created_by_user_id: UUID | None
     created_at: datetime
@@ -84,6 +85,7 @@ class FoodSuggestionItem(BaseModel):
     id: UUID
     item_type: Literal["standard", "custom", "recipe", "quick_add"]
     source: str
+    category: str | None = None
     name: str
     brand: str | None = None
     stores: str | None = None

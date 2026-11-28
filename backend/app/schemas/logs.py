@@ -79,6 +79,9 @@ class FoodLogItem(BaseModel):
     custom_name: str | None
     display_name: str
     brand: str | None
+    stores: str | None = None
+    source: str | None = None
+    category: str | None = None
     quantity_g: float
     kcal: float
     protein_g: float

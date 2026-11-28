@@ -9,6 +9,7 @@ class FoodModel {
   const FoodModel({
     required this.id,
     required this.source,
+    this.category,
     this.externalId,
     required this.name,
     this.brand,
@@ -32,6 +33,7 @@ class FoodModel {
 
   final String id;
   final String source;
+  final String? category;
   final String? externalId;
   final String name;
   final String? brand;
@@ -62,6 +64,7 @@ class FoodModel {
     return FoodModel(
       id: json['id'] as String,
       source: json['source'] as String,
+      category: json['category'] as String?,
       externalId: json['external_id'] as String?,
       name: json['name'] as String,
       brand: json['brand'] as String?,
@@ -90,6 +93,7 @@ class FoodSuggestionItemModel {
     required this.id,
     required this.itemType,
     required this.source,
+    this.category,
     required this.name,
     this.brand,
     this.stores,
@@ -118,8 +122,9 @@ class FoodSuggestionItemModel {
   });
 
   final String id;
-  final String itemType; // 'standard' | 'custom' | 'recipe'
-  final String source; // 'ciqual' | 'off' | 'custom' | 'recipe'
+  final String itemType; // 'standard' | 'custom' | 'recipe' | 'quick_add'
+  final String source; // 'ciqual' | 'off' | 'custom' | 'recipe' | 'quick_add'
+  final String? category;
   final String name;
   final String? brand;
   final String? stores;
@@ -152,6 +157,7 @@ class FoodSuggestionItemModel {
   FoodModel toFoodModel() => FoodModel(
         id: id,
         source: source,
+        category: category,
         name: name,
         brand: brand,
         stores: stores,
@@ -177,6 +183,7 @@ class FoodSuggestionItemModel {
       id: json['id'] as String,
       itemType: json['item_type'] as String,
       source: json['source'] as String,
+      category: json['category'] as String?,
       name: json['name'] as String,
       brand: json['brand'] as String?,
       stores: json['stores'] as String?,
@@ -245,7 +252,7 @@ class FoodRepository {
 
   Future<FoodSuggestionsResponseModel> fetchSuggestions({
     required int targetHour,
-    int limitPicks = 8,
+    int limitPicks = 5,
     int limitRecent = 30,
   }) async {
     final res = await _dio.get<Map<String, dynamic>>(

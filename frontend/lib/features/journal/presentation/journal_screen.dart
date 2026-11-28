@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:malvifactor/core/config/journal_preferences_provider.dart';
 import 'package:malvifactor/core/theme/app_theme.dart';
+import 'package:malvifactor/core/widgets/food_category_avatar.dart';
 import 'package:malvifactor/features/dashboard/data/dashboard_repository.dart';
 import 'package:malvifactor/features/dashboard/providers/dashboard_provider.dart';
 import 'package:malvifactor/features/food_logger/data/food_repository.dart';
@@ -424,19 +425,68 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
                   children: [
                     Row(
                       children: [
+                        FoodCategoryAvatar(
+                          name: item.displayName,
+                          source: item.source,
+                          category: item.category,
+                          size: 38,
+                          borderRadius: 10,
+                        ),
+                        const SizedBox(width: 10),
                         Expanded(
-                          child: Text(
-                            item.displayName,
-                            style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w700,
-                            ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      item.displayName,
+                                      style: const TextStyle(
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                  if (isRecipe) ...[
+                                    const SizedBox(width: 8),
+                                    const FoodSourceBadge(source: 'recipe'),
+                                  ],
+                                ],
+                              ),
+                              Builder(
+                                builder: (_) {
+                                  final editMeta = buildJournalFoodMetaSubtitle(
+                                    name: item.displayName,
+                                    brand: item.brand,
+                                    stores: item.stores,
+                                    source: item.source,
+                                    recipePortionHint:
+                                        item.recipeServingWeightG != null &&
+                                                item.recipeServingWeightG! > 0
+                                            ? '${formatFrNumber(snapPortionValue(currentQtyG, item.recipeServingWeightG!), decimals: 2)} ${formatPortionsWord(snapPortionValue(currentQtyG, item.recipeServingWeightG!))}'
+                                            : null,
+                                  );
+                                  if (editMeta == null) {
+                                    return const SizedBox.shrink();
+                                  }
+                                  return Padding(
+                                    padding: const EdgeInsets.only(top: 2),
+                                    child: Text(
+                                      editMeta,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Color(0xFF94A3B8),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
                           ),
                         ),
-                        if (isRecipe) ...[
-                          const SizedBox(width: 8),
-                          const FoodSourceBadge(source: 'recipe'),
-                        ],
                       ],
                     ),
                     const SizedBox(height: 8),
@@ -1217,45 +1267,84 @@ class _HourlyTimelineList extends StatelessWidget {
                             ),
                             child: Row(
                               children: [
-                                if (!isCompact || isSelected) ...[
+                                if (isSelected) ...[
                                   Container(
-                                    width: isCompact ? 22 : 32,
-                                    height: isCompact ? 22 : 32,
+                                    width: isCompact ? 28 : 38,
+                                    height: isCompact ? 28 : 38,
                                     decoration: BoxDecoration(
-                                      color: isSelected
-                                          ? AppColors.calories
-                                          : AppColors.surfaceElevated,
+                                      color: AppColors.calories,
                                       borderRadius: BorderRadius.circular(
-                                        isCompact ? 7 : 10,
+                                        isCompact ? 8 : 10,
                                       ),
                                     ),
                                     child: Icon(
-                                      isSelected
-                                          ? LucideIcons.check
-                                          : LucideIcons.utensils,
-                                      size: isCompact ? 13 : 15,
-                                      color: isSelected
-                                          ? AppColors.background
-                                          : AppColors.calories,
+                                      LucideIcons.check,
+                                      size: isCompact ? 15 : 18,
+                                      color: AppColors.background,
                                     ),
+                                  ),
+                                  SizedBox(width: isCompact ? 8 : 10),
+                                ] else ...[
+                                  FoodCategoryAvatar(
+                                    name: item.displayName,
+                                    source: item.source,
+                                    category: item.category,
+                                    size: isCompact ? 28 : 38,
+                                    borderRadius: isCompact ? 8 : 10,
                                   ),
                                   SizedBox(width: isCompact ? 8 : 10),
                                 ],
                                 Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        item.displayName,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      SizedBox(height: isCompact ? 1 : 3),
+                                  child: Builder(
+                                    builder: (_) {
+                                      String? recipePortionHint;
+                                      if (item.source == 'recipe' &&
+                                          item.recipeServingWeightG != null &&
+                                          item.recipeServingWeightG! > 0) {
+                                        final sw = item.recipeServingWeightG!;
+                                        final p = isSimpleServingMultiple(
+                                                item.quantityG, sw)
+                                            ? snapPortionValue(
+                                                item.quantityG, sw)
+                                            : (item.quantityG / sw);
+                                        recipePortionHint =
+                                            '${formatFrNumber(p, decimals: isSimpleServingMultiple(item.quantityG, sw) ? 2 : 2, trimTrailingZero: isSimpleServingMultiple(item.quantityG, sw))} ${formatPortionsWord(p)}';
+                                      }
+                                      final metaSubtitle =
+                                          buildJournalFoodMetaSubtitle(
+                                        name: item.displayName,
+                                        brand: item.brand,
+                                        stores: item.stores,
+                                        source: item.source,
+                                        recipePortionHint: recipePortionHint,
+                                      );
+                                      return Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            item.displayName,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontSize: 13.5,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          if (metaSubtitle != null) ...[
+                                            const SizedBox(height: 1),
+                                            Text(
+                                              metaSubtitle,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontSize: 11.5,
+                                                color: Color(0xFF94A3B8),
+                                                height: 1.2,
+                                              ),
+                                            ),
+                                          ],
+                                          SizedBox(height: isCompact ? 2 : 4),
                                       if (isCompact)
                                         FittedBox(
                                           fit: BoxFit.scaleDown,
@@ -1362,6 +1451,8 @@ class _HourlyTimelineList extends StatelessWidget {
                                           ),
                                         ),
                                     ],
+                                  );
+                                },
                                   ),
                                 ),
                                 IconButton(

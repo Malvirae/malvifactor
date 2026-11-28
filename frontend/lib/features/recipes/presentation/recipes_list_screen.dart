@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:malvifactor/core/theme/app_theme.dart';
+import 'package:malvifactor/core/widgets/food_category_avatar.dart';
 import 'package:malvifactor/features/food_logger/presentation/widgets/food_search_widgets.dart';
 import 'package:malvifactor/features/food_logger/presentation/widgets/recipe_portion_input.dart';
 import 'package:malvifactor/features/recipes/data/recipe_repository.dart';
@@ -126,7 +127,6 @@ class RecipesListScreen extends ConsumerWidget {
               final recipe = recipes[index];
               final sw = recipe.resolvedServingWeightG;
               final hasServings = recipe.hasServings && sw != null;
-              const recipeCyan = Color(0xFF22D3EE);
               final portionsCountStr =
                   '${formatFrNumber(recipe.servingsCount, decimals: 1)} ${formatPortionsWord(recipe.servingsCount)}';
 
@@ -144,18 +144,11 @@ class RecipesListScreen extends ConsumerWidget {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            color: recipeCyan.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(
-                            LucideIcons.chefHat,
-                            size: 20,
-                            color: recipeCyan,
-                          ),
+                        FoodCategoryAvatar(
+                          name: recipe.name,
+                          source: 'recipe',
+                          size: 42,
+                          borderRadius: 12,
                         ),
                         const SizedBox(width: 12),
                         Expanded(

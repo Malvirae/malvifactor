@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:malvifactor/core/theme/app_theme.dart';
+import 'package:malvifactor/core/widgets/food_category_avatar.dart';
 import 'package:malvifactor/features/analytics/providers/analytics_provider.dart';
 import 'package:malvifactor/features/dashboard/data/dashboard_repository.dart';
 import 'package:malvifactor/features/dashboard/providers/dashboard_provider.dart';
@@ -1066,6 +1067,7 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
                             brand: food.brand,
                             stores: food.stores,
                             source: food.source,
+                            category: food.category,
                             quantityG: qty,
                             customQuantityText: isRecipe &&
                                     food.servingWeightG != null
@@ -1186,7 +1188,10 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
           children: [
             if (suggestions.timePicks.isNotEmpty) ...[
               _SectionTitle('Habituels • $hourLabel'),
-              ..._buildSuggestionRows(suggestions.timePicks, basket),
+              ..._buildSuggestionRows(
+                suggestions.timePicks.take(5).toList(),
+                basket,
+              ),
               const SizedBox(height: 14),
             ],
             if (suggestions.recentFoods.isNotEmpty) ...[
@@ -1218,6 +1223,7 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
           brand: item.brand,
           stores: item.stores,
           source: item.source,
+          category: item.category,
           quantityG: item.lastQuantityG,
           customQuantityText: item.isQuickAdd
               ? 'Ajout libre'
@@ -1674,6 +1680,15 @@ class _BasketDrawer extends StatelessWidget {
                       onTap: () => onEditItem(item),
                       child: Row(
                         children: [
+                          FoodCategoryAvatar(
+                            name: item.name,
+                            source: item.source ??
+                                (item.itemType == 'recipe' ? 'recipe' : null),
+                            category: item.category,
+                            size: 34,
+                            borderRadius: 9,
+                          ),
+                          const SizedBox(width: 10),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,

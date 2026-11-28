@@ -3,7 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:malvifactor/core/theme/app_theme.dart';
+import 'package:malvifactor/core/widgets/food_category_avatar.dart';
 import 'package:malvifactor/features/food_logger/data/food_repository.dart';
+import 'package:malvifactor/features/food_logger/presentation/widgets/food_search_widgets.dart';
+import 'package:malvifactor/features/food_logger/presentation/widgets/recipe_portion_input.dart';
 
 class CustomFoodsScreen extends ConsumerStatefulWidget {
   const CustomFoodsScreen({super.key});
@@ -288,9 +291,21 @@ class _CustomFoodsScreenState extends ConsumerState<CustomFoodsScreen> {
                 return ListView.separated(
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 88),
                   itemCount: filtered.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
                   itemBuilder: (context, index) {
                     final food = filtered[index];
+                    final metaParts = <String>[
+                      if (food.brand != null && food.brand!.trim().isNotEmpty)
+                        food.brand!.trim(),
+                      if (food.stores != null && food.stores!.trim().isNotEmpty)
+                        food.stores!.trim(),
+                      if (food.externalId != null &&
+                          food.externalId!.trim().isNotEmpty)
+                        'EAN ${food.externalId!.trim()}',
+                    ];
+                    final hasCustomServing =
+                        food.servingSizeG > 0 && (food.servingSizeG - 100.0).abs() > 0.1;
+
                     return Material(
                       color: AppColors.surface,
                       shape: RoundedRectangleBorder(
@@ -298,40 +313,123 @@ class _CustomFoodsScreenState extends ConsumerState<CustomFoodsScreen> {
                         side: const BorderSide(color: AppColors.border),
                       ),
                       clipBehavior: Clip.antiAlias,
-                      child: ListTile(
-                        title: Text(
-                          food.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        subtitle: Text(
-                          '${food.brand != null ? '${food.brand} · ' : ''}${food.kcalPer100g.round()} kcal / 100g · P ${_fmt(food.proteinPer100g)}g · L ${_fmt(food.fatPer100g)}g · G ${_fmt(food.carbsPer100g)}g',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTheme.numericStyle(
-                            fontSize: 12,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              tooltip: 'Éditer',
-                              icon: const Icon(LucideIcons.pencil, size: 17),
-                              onPressed: () => _openFoodEditor(existing: food),
-                            ),
-                            IconButton(
-                              tooltip: 'Supprimer',
-                              icon: const Icon(
-                                LucideIcons.trash2,
-                                size: 17,
-                                color: AppColors.error,
+                      child: InkWell(
+                        onTap: () => _openFoodEditor(existing: food),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              FoodCategoryAvatar(
+                                name: food.name,
+                                source: food.source,
+                                category: food.category,
+                                size: 42,
+                                borderRadius: 12,
                               ),
-                              onPressed: () => _confirmAndDelete(food),
-                            ),
-                          ],
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            food.name,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w800,
+                                              color: AppColors.textPrimary,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        const FoodSourceBadge(source: 'custom'),
+                                      ],
+                                    ),
+                                    if (metaParts.isNotEmpty) ...[
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        metaParts.join(' · '),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 11.5,
+                                          color: Color(0xFF94A3B8),
+                                        ),
+                                      ),
+                                    ],
+                                    const SizedBox(height: 5),
+                                    ColoredMacroInlineRow(
+                                      kcal: food.kcalPer100g,
+                                      proteinG: food.proteinPer100g,
+                                      fatG: food.fatPer100g,
+                                      carbsG: food.carbsPer100g,
+                                      suffix: ' / 100 g',
+                                      fontSize: 12.5,
+                                      macroDecimals: 1,
+                                    ),
+                                    if (hasCustomServing) ...[
+                                      const SizedBox(height: 4),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 7,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.surfaceElevated,
+                                          borderRadius:
+                                              BorderRadius.circular(6),
+                                          border: Border.all(
+                                            color: AppColors.border,
+                                            width: 0.8,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          'Portion réf. : ${formatGramsText(food.servingSizeG)}',
+                                          style: AppTheme.numericStyle(
+                                            fontSize: 10.5,
+                                            fontWeight: FontWeight.w600,
+                                            color: AppColors.textSecondary,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    tooltip: 'Éditer',
+                                    icon: const Icon(
+                                      LucideIcons.pencil,
+                                      size: 17,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                    onPressed: () =>
+                                        _openFoodEditor(existing: food),
+                                  ),
+                                  IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    tooltip: 'Supprimer',
+                                    icon: const Icon(
+                                      LucideIcons.trash2,
+                                      size: 17,
+                                      color: AppColors.error,
+                                    ),
+                                    onPressed: () => _confirmAndDelete(food),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     );

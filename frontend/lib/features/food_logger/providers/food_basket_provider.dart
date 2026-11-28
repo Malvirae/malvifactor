@@ -12,7 +12,7 @@ final foodSuggestionsProvider =
   (ref, targetHour) async {
     return ref
         .watch(foodRepositoryProvider)
-        .fetchSuggestions(targetHour: targetHour);
+        .fetchSuggestions(targetHour: targetHour, limitPicks: 5);
   },
 );
 
@@ -20,6 +20,8 @@ class BasketItem {
   const BasketItem({
     required this.localId,
     required this.itemType,
+    this.source,
+    this.category,
     this.foodId,
     this.recipeId,
     this.customName,
@@ -41,6 +43,8 @@ class BasketItem {
 
   final String localId;
   final String itemType; // 'standard' | 'custom' | 'recipe' | 'quick'
+  final String? source;
+  final String? category;
   final String? foodId;
   final String? recipeId;
   final String? customName;
@@ -66,6 +70,8 @@ class BasketItem {
       return BasketItem(
         localId: localId,
         itemType: itemType,
+        source: source,
+        category: category,
         foodId: foodId,
         recipeId: recipeId,
         customName: customName,
@@ -89,6 +95,8 @@ class BasketItem {
     return BasketItem(
       localId: localId,
       itemType: itemType,
+      source: source,
+      category: category,
       foodId: foodId,
       recipeId: recipeId,
       customName: customName,
@@ -226,6 +234,8 @@ class FoodBasketNotifier extends StateNotifier<FoodBasketState> {
         itemType: isRecipe
             ? 'recipe'
             : (food.source == 'custom' ? 'custom' : 'standard'),
+        source: food.source,
+        category: food.category,
         foodId: isRecipe ? null : food.id,
         recipeId: isRecipe ? food.id : null,
         name: food.name,
@@ -254,6 +264,7 @@ class FoodBasketNotifier extends StateNotifier<FoodBasketState> {
       BasketItem(
         localId: _nextId(),
         itemType: 'recipe',
+        source: 'recipe',
         recipeId: recipe.id,
         name: recipe.name,
         quantityG: qty,
@@ -291,6 +302,8 @@ class FoodBasketNotifier extends StateNotifier<FoodBasketState> {
       BasketItem(
         localId: _nextId(),
         itemType: suggestion.itemType,
+        source: suggestion.source,
+        category: suggestion.category,
         foodId: suggestion.isRecipe ? null : suggestion.id,
         recipeId: suggestion.isRecipe ? suggestion.id : null,
         name: suggestion.name,
@@ -323,6 +336,7 @@ class FoodBasketNotifier extends StateNotifier<FoodBasketState> {
       BasketItem(
         localId: _nextId(),
         itemType: 'quick',
+        source: 'quick_add',
         customName: name.trim(),
         name: name.trim(),
         quantityG: 1.0,
