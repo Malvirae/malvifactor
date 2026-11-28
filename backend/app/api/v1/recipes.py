@@ -43,7 +43,11 @@ def _compute_recipe_nutrition(
 ) -> tuple[float, float, float, float, float]:
     """Compute total weight and per-100g macros from ingredient lines."""
     raw_weight = sum(item.quantity_g for item in ingredients_input)
-    total_weight_g = final_weight_g if final_weight_g is not None else raw_weight
+    total_weight_g = (
+        final_weight_g
+        if (final_weight_g is not None and final_weight_g > 0)
+        else raw_weight
+    )
     if total_weight_g <= 0:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -253,18 +257,28 @@ async def update_recipe(
             RecipeIngredient(food_id=item.food_id, quantity_g=item.quantity_g)
             for item in ingredients_input
         ]
-        target_weight = payload.final_weight_g
+        target_weight = (
+            payload.final_weight_g
+            if (payload.final_weight_g is not None and payload.final_weight_g > 0)
+            else None
+        )
     else:
         ingredients_input = [
             RecipeIngredientInput(food_id=ing.food_id, quantity_g=ing.quantity_g)
             for ing in recipe.ingredients
         ]
         foods_map = {ing.food_id: ing.food for ing in recipe.ingredients}
-        target_weight = (
-            payload.final_weight_g
-            if payload.final_weight_g is not None
-            else recipe.total_weight_g
-        )
+        if "final_weight_g" in payload.model_fields_set:
+            target_weight = (
+                payload.final_weight_g
+                if (
+                    payload.final_weight_g is not None
+                    and payload.final_weight_g > 0
+                )
+                else None
+            )
+        else:
+            target_weight = recipe.total_weight_g
 
     total_weight_g, kcal_100, protein_100, fat_100, carbs_100 = (
         _compute_recipe_nutrition(ingredients_input, foods_map, target_weight)

@@ -90,7 +90,7 @@ class MoreScreen extends ConsumerWidget {
       body: FutureBuilder<String>(
         future: OtaUpdateService.getCurrentVersion(),
         builder: (context, versionSnap) {
-          final version = versionSnap.data ?? '1.3.2';
+          final version = versionSnap.data ?? '1.3.3';
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 6, 16, 28),

@@ -69,7 +69,6 @@ class _RecipeEditorScreenState extends ConsumerState<RecipeEditorScreen> {
       _servingsController.text = detail.servingsCount.toStringAsFixed(
         detail.servingsCount % 1 == 0 ? 0 : 1,
       );
-      _finalWeightController.text = detail.totalWeightG.toStringAsFixed(0);
       _isShared = detail.isShared;
 
       _ingredients.clear();
@@ -94,6 +93,18 @@ class _RecipeEditorScreenState extends ConsumerState<RecipeEditorScreen> {
           ),
         );
       }
+
+      // Leave optional cooked weight empty (Auto mode) whenever stored total_weight_g
+      // already matches the sum of ingredients (<= 0.5 g tolerance).
+      final ingredientsSum =
+          _ingredients.fold<double>(0, (sum, i) => sum + i.quantityG);
+      final hasDistinctCookedWeight = detail.totalWeightG > 0 &&
+          (detail.totalWeightG - ingredientsSum).abs() > 0.5;
+      _finalWeightController.text = hasDistinctCookedWeight
+          ? (detail.totalWeightG % 1 == 0
+              ? detail.totalWeightG.toStringAsFixed(0)
+              : detail.totalWeightG.toStringAsFixed(1))
+          : '';
       setState(() => _isLoading = false);
     } catch (e) {
       if (!mounted) return;
@@ -160,8 +171,12 @@ class _RecipeEditorScreenState extends ConsumerState<RecipeEditorScreen> {
         double.tryParse(_servingsController.text.replaceAll(',', '.')) ?? 1.0;
     final finalWeightRaw =
         _finalWeightController.text.trim().replaceAll(',', '.');
-    final finalWeight =
+    final parsedFinalWeight =
         finalWeightRaw.isEmpty ? null : double.tryParse(finalWeightRaw);
+    final finalWeight =
+        (parsedFinalWeight != null && parsedFinalWeight > 0)
+            ? parsedFinalWeight
+            : null;
 
     final ingredientsPayload = _ingredients
         .map((e) => {'food_id': e.food.id, 'quantity_g': e.quantityG})
@@ -450,7 +465,43 @@ class _RecipeEditorScreenState extends ConsumerState<RecipeEditorScreen> {
                                           decimal: true),
                                   decoration: InputDecoration(
                                     labelText: 'Poids cuit (g)',
-                                    hintText: '${rawWeight.round()}',
+                                    hintText: rawWeight > 0
+                                        ? 'Auto : ${formatGramsText(rawWeight)}'
+                                        : 'Auto',
+                                    suffixIcon: _finalWeightController.text
+                                            .trim()
+                                            .isNotEmpty
+                                        ? Padding(
+                                            padding:
+                                                const EdgeInsets.only(right: 6),
+                                            child: TextButton(
+                                              style: TextButton.styleFrom(
+                                                minimumSize: const Size(0, 28),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                  horizontal: 8,
+                                                  vertical: 2,
+                                                ),
+                                                tapTargetSize:
+                                                    MaterialTapTargetSize
+                                                        .shrinkWrap,
+                                                foregroundColor:
+                                                    const Color(0xFF22D3EE),
+                                              ),
+                                              onPressed: () {
+                                                _finalWeightController.clear();
+                                                setState(() {});
+                                              },
+                                              child: const Text(
+                                                'Auto',
+                                                style: TextStyle(
+                                                  fontSize: 11.5,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ),
+                                          )
+                                        : null,
                                   ),
                                   onChanged: (_) => setState(() {}),
                                 ),

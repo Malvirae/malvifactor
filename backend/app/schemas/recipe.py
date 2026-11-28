@@ -40,7 +40,7 @@ class RecipeCreate(BaseModel):
     description: str | None = None
     servings_count: float = Field(default=1.0, gt=0.0)
     is_shared: bool = True
-    final_weight_g: float | None = Field(default=None, gt=0.0)
+    final_weight_g: float | None = Field(default=None)
     ingredients: list[RecipeIngredientInput] = Field(..., min_length=1)
 
 
@@ -51,7 +51,7 @@ class RecipeUpdate(BaseModel):
     description: str | None = None
     servings_count: float | None = Field(default=None, gt=0.0)
     is_shared: bool | None = None
-    final_weight_g: float | None = Field(default=None, gt=0.0)
+    final_weight_g: float | None = Field(default=None)
     ingredients: list[RecipeIngredientInput] | None = Field(
         default=None, min_length=1
     )

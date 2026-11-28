@@ -288,152 +288,217 @@ class _CustomFoodsScreenState extends ConsumerState<CustomFoodsScreen> {
                   );
                 }
 
-                return ListView.separated(
+                return ListView(
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 88),
-                  itemCount: filtered.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (context, index) {
-                    final food = filtered[index];
-                    final metaParts = <String>[
-                      if (food.brand != null && food.brand!.trim().isNotEmpty)
-                        food.brand!.trim(),
-                      if (food.stores != null && food.stores!.trim().isNotEmpty)
-                        food.stores!.trim(),
-                      if (food.externalId != null &&
-                          food.externalId!.trim().isNotEmpty)
-                        'EAN ${food.externalId!.trim()}',
-                    ];
-                    final hasCustomServing =
-                        food.servingSizeG > 0 && (food.servingSizeG - 100.0).abs() > 0.1;
-
-                    return Material(
-                      color: AppColors.surface,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        side: const BorderSide(color: AppColors.border),
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.border),
                       ),
                       clipBehavior: Clip.antiAlias,
-                      child: InkWell(
-                        onTap: () => _openFoodEditor(existing: food),
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              FoodCategoryAvatar(
-                                name: food.name,
-                                source: food.source,
-                                category: food.category,
-                                size: 42,
-                                borderRadius: 12,
+                      child: Column(
+                        children: [
+                          for (var index = 0;
+                              index < filtered.length;
+                              index++) ...[
+                            if (index > 0)
+                              const Divider(
+                                height: 1,
+                                thickness: 0.6,
+                                color: Colors.white10,
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
+                            Builder(
+                              builder: (_) {
+                                final food = filtered[index];
+                                final brandStoresMeta =
+                                    buildJournalFoodMetaSubtitle(
+                                  name: food.name,
+                                  brand: food.brand,
+                                  stores: food.stores,
+                                  source: 'custom',
+                                );
+                                final ean = (food.externalId ?? '').trim();
+                                final hasBarcode = ean.isNotEmpty;
+                                final hasMetaRow =
+                                    brandStoresMeta != null || hasBarcode;
+                                final hasCustomServing = food.servingSizeG > 0 &&
+                                    (food.servingSizeG - 100.0).abs() > 0.1;
+
+                                return InkWell(
+                                  onTap: () => _openFoodEditor(existing: food),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 6.5,
+                                    ),
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.center,
                                       children: [
+                                        FoodCategoryAvatar(
+                                          name: food.name,
+                                          source: food.source,
+                                          category: food.category,
+                                          size: 32,
+                                          borderRadius: 9,
+                                        ),
+                                        const SizedBox(width: 9),
                                         Expanded(
-                                          child: Text(
-                                            food.name,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontSize: 15,
-                                              fontWeight: FontWeight.w800,
-                                              color: AppColors.textPrimary,
-                                            ),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  Expanded(
+                                                    child: Text(
+                                                      food.name,
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                        fontSize: 13.5,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                        color: AppColors
+                                                            .textPrimary,
+                                                        height: 1.15,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 6),
+                                                  const FoodSourceBadge(
+                                                    source: 'custom',
+                                                  ),
+                                                ],
+                                              ),
+                                              if (hasMetaRow) ...[
+                                                const SizedBox(height: 1.5),
+                                                Row(
+                                                  children: [
+                                                    if (brandStoresMeta !=
+                                                        null)
+                                                      Flexible(
+                                                        child: Text(
+                                                          brandStoresMeta,
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                          style:
+                                                              const TextStyle(
+                                                            fontSize: 11,
+                                                            color: Color(
+                                                                0xFF94A3B8),
+                                                            height: 1.15,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    if (brandStoresMeta !=
+                                                            null &&
+                                                        hasBarcode)
+                                                      const Text(
+                                                        ' · ',
+                                                        style: TextStyle(
+                                                          fontSize: 11,
+                                                          color:
+                                                              Color(0xFF94A3B8),
+                                                          height: 1.15,
+                                                        ),
+                                                      ),
+                                                    if (hasBarcode) ...[
+                                                      const Icon(
+                                                        Icons.qr_code_2_rounded,
+                                                        size: 11.5,
+                                                        color:
+                                                            Color(0xFF94A3B8),
+                                                      ),
+                                                      const SizedBox(width: 2.5),
+                                                      Flexible(
+                                                        child: Text(
+                                                          ean,
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                          style: AppTheme
+                                                              .numericStyle(
+                                                            fontSize: 10.5,
+                                                            color: const Color(
+                                                                0xFF94A3B8),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ],
+                                                ),
+                                              ],
+                                              const SizedBox(height: 3),
+                                              FittedBox(
+                                                fit: BoxFit.scaleDown,
+                                                alignment: Alignment.centerLeft,
+                                                child: ColoredMacroInlineRow(
+                                                  kcal: food.kcalPer100g,
+                                                  proteinG: food.proteinPer100g,
+                                                  fatG: food.fatPer100g,
+                                                  carbsG: food.carbsPer100g,
+                                                  suffix: hasCustomServing
+                                                      ? ' / 100g · Port. ${formatGramsText(food.servingSizeG)}'
+                                                      : ' / 100g',
+                                                  fontSize: 11.5,
+                                                  macroDecimals: 1,
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ),
-                                        const SizedBox(width: 6),
-                                        const FoodSourceBadge(source: 'custom'),
-                                      ],
-                                    ),
-                                    if (metaParts.isNotEmpty) ...[
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        metaParts.join(' · '),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontSize: 11.5,
-                                          color: Color(0xFF94A3B8),
-                                        ),
-                                      ),
-                                    ],
-                                    const SizedBox(height: 5),
-                                    ColoredMacroInlineRow(
-                                      kcal: food.kcalPer100g,
-                                      proteinG: food.proteinPer100g,
-                                      fatG: food.fatPer100g,
-                                      carbsG: food.carbsPer100g,
-                                      suffix: ' / 100 g',
-                                      fontSize: 12.5,
-                                      macroDecimals: 1,
-                                    ),
-                                    if (hasCustomServing) ...[
-                                      const SizedBox(height: 4),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 7,
-                                          vertical: 2,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.surfaceElevated,
-                                          borderRadius:
-                                              BorderRadius.circular(6),
-                                          border: Border.all(
-                                            color: AppColors.border,
-                                            width: 0.8,
+                                        const SizedBox(width: 4),
+                                        IconButton(
+                                          visualDensity: VisualDensity.compact,
+                                          padding: EdgeInsets.zero,
+                                          constraints:
+                                              const BoxConstraints.tightFor(
+                                            width: 32,
+                                            height: 32,
                                           ),
-                                        ),
-                                        child: Text(
-                                          'Portion réf. : ${formatGramsText(food.servingSizeG)}',
-                                          style: AppTheme.numericStyle(
-                                            fontSize: 10.5,
-                                            fontWeight: FontWeight.w600,
+                                          tooltip: 'Éditer',
+                                          icon: const Icon(
+                                            LucideIcons.pencil,
+                                            size: 17,
                                             color: AppColors.textSecondary,
                                           ),
+                                          onPressed: () =>
+                                              _openFoodEditor(existing: food),
                                         ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    visualDensity: VisualDensity.compact,
-                                    tooltip: 'Éditer',
-                                    icon: const Icon(
-                                      LucideIcons.pencil,
-                                      size: 17,
-                                      color: AppColors.textSecondary,
+                                        IconButton(
+                                          visualDensity: VisualDensity.compact,
+                                          padding: EdgeInsets.zero,
+                                          constraints:
+                                              const BoxConstraints.tightFor(
+                                            width: 32,
+                                            height: 32,
+                                          ),
+                                          tooltip: 'Supprimer',
+                                          icon: const Icon(
+                                            LucideIcons.trash2,
+                                            size: 17,
+                                            color: AppColors.error,
+                                          ),
+                                          onPressed: () =>
+                                              _confirmAndDelete(food),
+                                        ),
+                                      ],
                                     ),
-                                    onPressed: () =>
-                                        _openFoodEditor(existing: food),
                                   ),
-                                  IconButton(
-                                    visualDensity: VisualDensity.compact,
-                                    tooltip: 'Supprimer',
-                                    icon: const Icon(
-                                      LucideIcons.trash2,
-                                      size: 17,
-                                      color: AppColors.error,
-                                    ),
-                                    onPressed: () => _confirmAndDelete(food),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
+                                );
+                              },
+                            ),
+                          ],
+                        ],
                       ),
-                    );
-                  },
+                    ),
+                  ],
                 );
               },
             ),

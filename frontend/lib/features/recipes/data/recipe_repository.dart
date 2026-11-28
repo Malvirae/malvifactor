@@ -274,7 +274,7 @@ class RecipeRepository {
           'description': description.trim(),
         'servings_count': servingsCount,
         'is_shared': isShared,
-        if (finalWeightG != null) 'final_weight_g': finalWeightG,
+        'final_weight_g': finalWeightG,
         'ingredients': ingredients,
       },
     );
@@ -297,7 +297,7 @@ class RecipeRepository {
         'description': description?.trim() ?? '',
         'servings_count': servingsCount,
         'is_shared': isShared,
-        if (finalWeightG != null) 'final_weight_g': finalWeightG,
+        'final_weight_g': finalWeightG,
         'ingredients': ingredients,
       },
     );
