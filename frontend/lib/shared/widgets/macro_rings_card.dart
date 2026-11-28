@@ -14,12 +14,14 @@ class MacroRingsCard extends StatefulWidget {
     required this.targets,
     required this.remaining,
     this.title = 'Nutrition du jour',
+    this.fillHeight = false,
   });
 
   final MacroSummaryModel totals;
   final MacroSummaryModel targets;
   final MacroSummaryModel remaining;
   final String title;
+  final bool fillHeight;
 
   @override
   State<MacroRingsCard> createState() => _MacroRingsCardState();
@@ -172,7 +174,7 @@ class _MacroRingsCardState extends State<MacroRingsCard> {
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          if (widget.fillHeight) const Spacer() else const SizedBox(height: 16),
           Center(
             child: Container(
               padding: const EdgeInsets.all(3),

@@ -288,6 +288,186 @@ class AnalyticsPointModel {
   }
 }
 
+class WeeklyNutritionDayModel {
+  const WeeklyNutritionDayModel({
+    required this.date,
+    required this.dayOfWeek,
+    required this.isToday,
+    required this.isFuture,
+    required this.consumedKcal,
+    required this.consumedProteinG,
+    required this.consumedFatG,
+    required this.consumedCarbsG,
+    required this.targetKcal,
+    required this.targetProteinG,
+    required this.targetFatG,
+    required this.targetCarbsG,
+  });
+
+  final DateTime date;
+  final int dayOfWeek; // 1 = Monday .. 7 = Sunday
+  final bool isToday;
+  final bool isFuture;
+  final double consumedKcal;
+  final double consumedProteinG;
+  final double consumedFatG;
+  final double consumedCarbsG;
+  final double targetKcal;
+  final double targetProteinG;
+  final double targetFatG;
+  final double targetCarbsG;
+
+  factory WeeklyNutritionDayModel.fromJson(Map<String, dynamic> json) {
+    return WeeklyNutritionDayModel(
+      date: DateTime.parse(json['date'] as String),
+      dayOfWeek: (json['day_of_week'] as num).toInt(),
+      isToday: json['is_today'] as bool,
+      isFuture: json['is_future'] as bool,
+      consumedKcal: (json['consumed_kcal'] as num).toDouble(),
+      consumedProteinG: (json['consumed_protein_g'] as num).toDouble(),
+      consumedFatG: (json['consumed_fat_g'] as num).toDouble(),
+      consumedCarbsG: (json['consumed_carbs_g'] as num).toDouble(),
+      targetKcal: (json['target_kcal'] as num).toDouble(),
+      targetProteinG: (json['target_protein_g'] as num).toDouble(),
+      targetFatG: (json['target_fat_g'] as num).toDouble(),
+      targetCarbsG: (json['target_carbs_g'] as num).toDouble(),
+    );
+  }
+}
+
+class WeeklyNutritionTotalsModel {
+  const WeeklyNutritionTotalsModel({
+    required this.consumedKcal,
+    required this.consumedProteinG,
+    required this.consumedFatG,
+    required this.consumedCarbsG,
+    required this.targetKcal,
+    required this.targetProteinG,
+    required this.targetFatG,
+    required this.targetCarbsG,
+  });
+
+  final double consumedKcal;
+  final double consumedProteinG;
+  final double consumedFatG;
+  final double consumedCarbsG;
+  final double targetKcal;
+  final double targetProteinG;
+  final double targetFatG;
+  final double targetCarbsG;
+
+  factory WeeklyNutritionTotalsModel.fromJson(Map<String, dynamic> json) {
+    return WeeklyNutritionTotalsModel(
+      consumedKcal: (json['consumed_kcal'] as num).toDouble(),
+      consumedProteinG: (json['consumed_protein_g'] as num).toDouble(),
+      consumedFatG: (json['consumed_fat_g'] as num).toDouble(),
+      consumedCarbsG: (json['consumed_carbs_g'] as num).toDouble(),
+      targetKcal: (json['target_kcal'] as num).toDouble(),
+      targetProteinG: (json['target_protein_g'] as num).toDouble(),
+      targetFatG: (json['target_fat_g'] as num).toDouble(),
+      targetCarbsG: (json['target_carbs_g'] as num).toDouble(),
+    );
+  }
+}
+
+class WeeklyNutritionModel {
+  const WeeklyNutritionModel({
+    required this.weekStart,
+    required this.weekEnd,
+    required this.days,
+    required this.weekTotals,
+  });
+
+  final DateTime weekStart;
+  final DateTime weekEnd;
+  final List<WeeklyNutritionDayModel> days;
+  final WeeklyNutritionTotalsModel weekTotals;
+
+  factory WeeklyNutritionModel.fromJson(Map<String, dynamic> json) {
+    return WeeklyNutritionModel(
+      weekStart: DateTime.parse(json['week_start'] as String),
+      weekEnd: DateTime.parse(json['week_end'] as String),
+      days: (json['days'] as List<dynamic>)
+          .map(
+            (e) =>
+                WeeklyNutritionDayModel.fromJson(e as Map<String, dynamic>),
+          )
+          .toList(),
+      weekTotals: WeeklyNutritionTotalsModel.fromJson(
+        json['week_totals'] as Map<String, dynamic>,
+      ),
+    );
+  }
+
+  /// Graceful fallback when talking to an older backend before restart.
+  factory WeeklyNutritionModel.fallback({
+    required DateTime today,
+    required List<DaySummaryModel> summary,
+    required MacroSummaryModel defaultTargets,
+  }) {
+    final todayDate = DateTime(today.year, today.month, today.day);
+    final monday = todayDate.subtract(Duration(days: todayDate.weekday - 1));
+    final sunday = monday.add(const Duration(days: 6));
+    final byDate = <String, DaySummaryModel>{
+      for (final s in summary)
+        DateFormat('yyyy-MM-dd').format(s.date): s,
+    };
+
+    final days = <WeeklyNutritionDayModel>[];
+    double cK = 0, cP = 0, cF = 0, cC = 0;
+    double tK = 0, tP = 0, tF = 0, tC = 0;
+    for (var i = 0; i < 7; i++) {
+      final d = monday.add(Duration(days: i));
+      final key = DateFormat('yyyy-MM-dd').format(d);
+      final s = byDate[key];
+      final ck = s?.kcal ?? 0.0;
+      final cp = s?.proteinG ?? 0.0;
+      final cf = s?.fatG ?? 0.0;
+      final cc = s?.carbsG ?? 0.0;
+      cK += ck;
+      cP += cp;
+      cF += cf;
+      cC += cc;
+      tK += defaultTargets.kcal;
+      tP += defaultTargets.proteinG;
+      tF += defaultTargets.fatG;
+      tC += defaultTargets.carbsG;
+      days.add(
+        WeeklyNutritionDayModel(
+          date: d,
+          dayOfWeek: i + 1,
+          isToday: d == todayDate,
+          isFuture: d.isAfter(todayDate),
+          consumedKcal: ck,
+          consumedProteinG: cp,
+          consumedFatG: cf,
+          consumedCarbsG: cc,
+          targetKcal: defaultTargets.kcal,
+          targetProteinG: defaultTargets.proteinG,
+          targetFatG: defaultTargets.fatG,
+          targetCarbsG: defaultTargets.carbsG,
+        ),
+      );
+    }
+
+    return WeeklyNutritionModel(
+      weekStart: monday,
+      weekEnd: sunday,
+      days: days,
+      weekTotals: WeeklyNutritionTotalsModel(
+        consumedKcal: cK,
+        consumedProteinG: cP,
+        consumedFatG: cF,
+        consumedCarbsG: cC,
+        targetKcal: tK,
+        targetProteinG: tP,
+        targetFatG: tF,
+        targetCarbsG: tC,
+      ),
+    );
+  }
+}
+
 class DashboardRepository {
   DashboardRepository(this._dio);
 
@@ -374,6 +554,19 @@ class DashboardRepository {
     } on DioException {
       return fetchAnalytics(365);
     }
+  }
+
+  Future<WeeklyNutritionModel> fetchWeeklyNutrition({
+    DateTime? referenceDate,
+  }) async {
+    final res = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/dashboard/weekly-nutrition',
+      queryParameters: {
+        if (referenceDate != null)
+          'reference_date': DateFormat('yyyy-MM-dd').format(referenceDate),
+      },
+    );
+    return WeeklyNutritionModel.fromJson(res.data!);
   }
 }
 

@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1 import auth, checkins, foods, logs, profile, recipes, weights
+from app.api.v1 import auth, checkins, dashboard, foods, logs, profile, recipes, weights
 
 api_router = APIRouter()
 api_router.include_router(auth.router)
@@ -10,3 +10,4 @@ api_router.include_router(recipes.router)
 api_router.include_router(logs.router)
 api_router.include_router(weights.router)
 api_router.include_router(checkins.router)
+api_router.include_router(dashboard.router)

@@ -1,7 +1,9 @@
 import 'dart:math' as math;
+import 'dart:ui' show PointerDeviceKind;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -9,6 +11,7 @@ import 'package:malvifactor/core/theme/app_theme.dart';
 import 'package:malvifactor/core/widgets/pressable_scale.dart';
 import 'package:malvifactor/features/analytics/presentation/metric_detail_screen.dart';
 import 'package:malvifactor/features/dashboard/data/dashboard_repository.dart';
+import 'package:malvifactor/features/dashboard/presentation/widgets/weekly_nutrition_card.dart';
 import 'package:malvifactor/features/dashboard/providers/dashboard_provider.dart';
 import 'package:malvifactor/shared/widgets/habit_day_detail_sheet.dart';
 import 'package:malvifactor/shared/widgets/macro_rings_card.dart';
@@ -241,141 +244,150 @@ class _DashboardBody extends StatelessWidget {
     final logsThisWeek = last7Keys.where(logDaysSet.contains).length;
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+      padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
       children: [
         SoftFadeIn(
-          child: MacroRingsCard(
-            totals: data.dayLogs.totals,
-            targets: data.dayLogs.targets,
-            remaining: data.dayLogs.remaining,
+          child: _NutritionCarousel(
+            dayLogs: data.dayLogs,
+            weeklyNutrition: data.weeklyNutrition,
           ),
         ),
-        const SizedBox(height: 20),
-        const Text(
-          'Insights & Analyses',
-          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 10),
-        SoftFadeIn(
-          delayMs: 40,
-          child: IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  child: _InsightSparkCard(
-                    title: 'Dépense (TDEE)',
-                    subtitle: '7 derniers jours',
-                    value: '${data.profile.currentTdeeKcal.round()} kcal',
-                    color: AppColors.expenditure,
-                    spots: tdeeSpots,
-                    onTap: () => onOpenMetric(MetricCategory.expenditure),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 14),
+              const Text(
+                'Insights & Analyses',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 10),
+              SoftFadeIn(
+                delayMs: 40,
+                child: IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: _InsightSparkCard(
+                          title: 'Dépense (TDEE)',
+                          subtitle: '7 derniers jours',
+                          value: '${data.profile.currentTdeeKcal.round()} kcal',
+                          color: AppColors.expenditure,
+                          spots: tdeeSpots,
+                          onTap: () => onOpenMetric(MetricCategory.expenditure),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _AdherenceInsightCard(
+                          adherencePct: adherencePct,
+                          onTap: () =>
+                              onOpenMetric(MetricCategory.goalProgress),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _AdherenceInsightCard(
-                    adherencePct: adherencePct,
-                    onTap: () => onOpenMetric(MetricCategory.goalProgress),
+              ),
+              const SizedBox(height: 10),
+              SoftFadeIn(
+                delayMs: 80,
+                child: IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: _InsightSparkCard(
+                          title: 'Tendance de poids',
+                          subtitle: '7 derniers jours',
+                          value: latestTrend != null
+                              ? '${latestTrend.toStringAsFixed(1).replaceAll('.', ',')} kg'
+                              : '-- kg',
+                          color: AppColors.weight,
+                          spots: weightSpots,
+                          onTap: () =>
+                              onOpenMetric(MetricCategory.weightTrend),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _InsightSparkCard(
+                          title: fatOrRawTitle,
+                          subtitle: '7 derniers jours',
+                          value: fatOrRawValue,
+                          color: AppColors.bodyFat,
+                          spots: fatOrRawSpots,
+                          onTap: () => onOpenMetric(
+                            hasFat
+                                ? MetricCategory.bodyFat
+                                : MetricCategory.weightTrend,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 10),
-        SoftFadeIn(
-          delayMs: 80,
-          child: IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  child: _InsightSparkCard(
-                    title: 'Tendance de poids',
-                    subtitle: '7 derniers jours',
-                    value: latestTrend != null
-                        ? '${latestTrend.toStringAsFixed(1).replaceAll('.', ',')} kg'
-                        : '-- kg',
-                    color: AppColors.weight,
-                    spots: weightSpots,
-                    onTap: () => onOpenMetric(MetricCategory.weightTrend),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _InsightSparkCard(
-                    title: fatOrRawTitle,
-                    subtitle: '7 derniers jours',
-                    value: fatOrRawValue,
-                    color: AppColors.bodyFat,
-                    spots: fatOrRawSpots,
-                    onTap: () => onOpenMetric(
-                      hasFat
-                          ? MetricCategory.bodyFat
-                          : MetricCategory.weightTrend,
+              ),
+              const SizedBox(height: 22),
+              const Text(
+                'Habitudes',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: _HabitHeatmapCard(
+                      title: 'Pesées',
+                      subtitle: '30 derniers jours',
+                      keys: last30Keys,
+                      activeKeys: weightDaysSet,
+                      activeColor: AppColors.carbs,
+                      weekCount: weightThisWeek,
+                      onTap: () => onOpenMetric(MetricCategory.weightHabits),
+                      onCellTap: (idx) {
+                        final key = last30Keys[idx];
+                        final entry = weightByKey[key];
+                        if (entry != null) {
+                          showWeightHabitDetailSheet(
+                            context,
+                            date: last30Dates[idx],
+                            entry: entry,
+                          );
+                        }
+                      },
                     ),
                   ),
-                ),
-              ],
-            ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _HabitHeatmapCard(
+                      title: 'Journal alimentaire',
+                      subtitle: '30 derniers jours',
+                      keys: last30Keys,
+                      activeKeys: logDaysSet,
+                      activeColor: AppColors.calories,
+                      weekCount: logsThisWeek,
+                      onTap: () => onOpenMetric(MetricCategory.foodHabits),
+                      onCellTap: (idx) {
+                        final key = last30Keys[idx];
+                        final summary = logSummaryByKey[key];
+                        if (summary != null) {
+                          showFoodHabitDetailSheet(
+                            context,
+                            date: last30Dates[idx],
+                            summary: summary,
+                            targets: data.dayLogs.targets,
+                          );
+                        }
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-        ),
-        const SizedBox(height: 22),
-        const Text(
-          'Habitudes',
-          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: _HabitHeatmapCard(
-                title: 'Pesées',
-                subtitle: '30 derniers jours',
-                keys: last30Keys,
-                activeKeys: weightDaysSet,
-                activeColor: AppColors.carbs,
-                weekCount: weightThisWeek,
-                onTap: () => onOpenMetric(MetricCategory.weightHabits),
-                onCellTap: (idx) {
-                  final key = last30Keys[idx];
-                  final entry = weightByKey[key];
-                  if (entry != null) {
-                    showWeightHabitDetailSheet(
-                      context,
-                      date: last30Dates[idx],
-                      entry: entry,
-                    );
-                  }
-                },
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _HabitHeatmapCard(
-                title: 'Journal alimentaire',
-                subtitle: '30 derniers jours',
-                keys: last30Keys,
-                activeKeys: logDaysSet,
-                activeColor: AppColors.calories,
-                weekCount: logsThisWeek,
-                onTap: () => onOpenMetric(MetricCategory.foodHabits),
-                onCellTap: (idx) {
-                  final key = last30Keys[idx];
-                  final summary = logSummaryByKey[key];
-                  if (summary != null) {
-                    showFoodHabitDetailSheet(
-                      context,
-                      date: last30Dates[idx],
-                      summary: summary,
-                      targets: data.dayLogs.targets,
-                    );
-                  }
-                },
-              ),
-            ),
-          ],
         ),
       ],
     );
@@ -383,6 +395,129 @@ class _DashboardBody extends StatelessWidget {
 
   String _dateKey(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+}
+
+class _NutritionCarousel extends StatefulWidget {
+  const _NutritionCarousel({
+    required this.dayLogs,
+    required this.weeklyNutrition,
+  });
+
+  final DayLogsModel dayLogs;
+  final WeeklyNutritionModel weeklyNutrition;
+
+  @override
+  State<_NutritionCarousel> createState() => _NutritionCarouselState();
+}
+
+class _NutritionCarouselState extends State<_NutritionCarousel> {
+  static const double _cardHeight = 352.0;
+
+  late final PageController _pageController;
+  int _currentPage = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _goToPage(int index) {
+    if (_currentPage == index) return;
+    HapticFeedback.selectionClick();
+    _pageController.animateToPage(
+      index,
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final disableAnimations = MediaQuery.disableAnimationsOf(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: _cardHeight,
+          child: ScrollConfiguration(
+            behavior: ScrollConfiguration.of(context).copyWith(
+              dragDevices: const {
+                PointerDeviceKind.touch,
+                PointerDeviceKind.mouse,
+                PointerDeviceKind.trackpad,
+              },
+            ),
+            child: PageView(
+              controller: _pageController,
+              onPageChanged: (idx) {
+                if (_currentPage != idx) {
+                  setState(() => _currentPage = idx);
+                }
+              },
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: MacroRingsCard(
+                    totals: widget.dayLogs.totals,
+                    targets: widget.dayLogs.targets,
+                    remaining: widget.dayLogs.remaining,
+                    fillHeight: true,
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: WeeklyNutritionCard(
+                    weekly: widget.weeklyNutrition,
+                    fillHeight: true,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            for (var i = 0; i < 2; i++)
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _goToPage(i),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 6,
+                  ),
+                  child: AnimatedContainer(
+                    duration: disableAnimations
+                        ? Duration.zero
+                        : const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    width: _currentPage == i ? 16 : 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: _currentPage == i
+                          ? const Color(0xFFF8FAFC)
+                          : Colors.white24,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
 }
 
 class _InsightSparkCard extends StatelessWidget {
