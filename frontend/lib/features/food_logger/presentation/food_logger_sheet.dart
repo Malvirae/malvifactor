@@ -13,6 +13,7 @@ import 'package:malvifactor/features/food_logger/data/food_repository.dart';
 import 'package:malvifactor/features/food_logger/presentation/barcode_review_sheet.dart';
 import 'package:malvifactor/features/food_logger/presentation/barcode_scanner_screen.dart';
 import 'package:malvifactor/features/food_logger/presentation/quantity_bottom_sheet.dart';
+import 'package:malvifactor/features/food_logger/presentation/widgets/food_search_widgets.dart';
 import 'package:malvifactor/features/food_logger/providers/food_basket_provider.dart';
 import 'package:malvifactor/features/journal/presentation/journal_screen.dart';
 import 'package:malvifactor/features/profile/providers/profile_provider.dart';
@@ -76,7 +77,7 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
 
   Timer? _debounce;
   int _tabIndex = 0; // 0: Recherche, 1: Recettes, 2: Ajout libre
-  _SearchSourceFilter _sourceFilter = _SearchSourceFilter.all;
+  FoodSourceFilter _sourceFilter = FoodSourceFilter.all;
   List<FoodModel> _searchResults = const [];
   bool _loadingSearch = false;
   bool _submittingQuick = false;
@@ -996,53 +997,15 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
   }) {
     final query = _searchController.text.trim();
     if (query.isNotEmpty) {
-      final filteredResults = _searchResults.where((food) {
-        switch (_sourceFilter) {
-          case _SearchSourceFilter.all:
-            return true;
-          case _SearchSourceFilter.ciqual:
-            return food.source == 'ciqual';
-          case _SearchSourceFilter.off:
-            return food.source == 'off' || food.source == 'openfoodfacts';
-          case _SearchSourceFilter.custom:
-            return food.source == 'custom' || food.source == 'recipe';
-        }
-      }).toList();
+      final filteredResults = _searchResults
+          .where((food) => _sourceFilter.matches(food.source))
+          .toList();
 
       return Column(
         children: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Row(
-              children: _SearchSourceFilter.values.map((filter) {
-                final selected = filter == _sourceFilter;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: ChoiceChip(
-                    label: Text(filter.label),
-                    selected: selected,
-                    visualDensity: VisualDensity.compact,
-                    showCheckmark: false,
-                    selectedColor: const Color(0xFFF8FAFC),
-                    backgroundColor: AppColors.surfaceElevated,
-                    side: BorderSide(
-                      color: selected
-                          ? const Color(0xFFF8FAFC)
-                          : AppColors.border,
-                    ),
-                    labelStyle: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                      color: selected
-                          ? AppColors.background
-                          : AppColors.textSecondary,
-                    ),
-                    onSelected: (_) => setState(() => _sourceFilter = filter),
-                  ),
-                );
-              }).toList(),
-            ),
+          FoodSearchFilterPills(
+            selected: _sourceFilter,
+            onSelected: (filter) => setState(() => _sourceFilter = filter),
           ),
           Expanded(
             child: _loadingSearch
@@ -1070,16 +1033,11 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
                           final count = isRecipe
                               ? basket.countFor(recipeId: food.id)
                               : basket.countFor(foodId: food.id);
-                          return _MacroFactorFoodRow(
+                          return FoodSearchResultRow(
                             name: food.name,
                             brand: food.brand,
                             stores: food.stores,
                             source: food.source,
-                            itemType: isRecipe
-                                ? 'recipe'
-                                : (food.source == 'custom'
-                                    ? 'custom'
-                                    : 'standard'),
                             quantityG: qty,
                             kcal: food.kcalPer100g * factor,
                             proteinG: food.proteinPer100g * factor,
@@ -1220,12 +1178,11 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
           ? basket.countFor(recipeId: item.id)
           : basket.countFor(foodId: item.id);
       widgets.add(
-        _MacroFactorFoodRow(
+        FoodSearchResultRow(
           name: item.name,
           brand: item.brand,
           stores: item.stores,
           source: item.source,
-          itemType: item.itemType,
           quantityG: item.lastQuantityG,
           kcal: item.previewKcal,
           proteinG: item.previewProteinG,
@@ -1313,12 +1270,11 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
                       : 100.0;
                   final factor = defaultQty / 100.0;
                   final count = basket.countFor(recipeId: recipe.id);
-                  return _MacroFactorFoodRow(
+                  return FoodSearchResultRow(
                     name: recipe.name,
                     brand: null,
                     stores: null,
                     source: 'recipe',
-                    itemType: 'recipe',
                     quantityG: defaultQty,
                     kcal: recipe.kcalPer100g * factor,
                     proteinG: recipe.proteinPer100g * factor,
@@ -1528,295 +1484,6 @@ class _SectionTitle extends StatelessWidget {
           fontWeight: FontWeight.w800,
           letterSpacing: 0.3,
           color: AppColors.textSecondary,
-        ),
-      ),
-    );
-  }
-}
-
-enum _SearchSourceFilter {
-  all('Tous'),
-  ciqual('Ciqual'),
-  off('OpenFoodFacts'),
-  custom('Perso');
-
-  const _SearchSourceFilter(this.label);
-  final String label;
-}
-
-class _SourceBadge extends StatelessWidget {
-  const _SourceBadge({required this.source});
-
-  final String source;
-
-  @override
-  Widget build(BuildContext context) {
-    final Color bgColor;
-    final Color fgColor;
-    final String label;
-    final IconData? icon;
-
-    switch (source) {
-      case 'ciqual':
-        bgColor = const Color(0xFF10B981).withValues(alpha: 0.15);
-        fgColor = const Color(0xFF34D399);
-        label = 'Ciqual';
-        icon = Icons.verified_rounded;
-      case 'off':
-      case 'openfoodfacts':
-        bgColor = const Color(0xFFF59E0B).withValues(alpha: 0.15);
-        fgColor = const Color(0xFFFBBF24);
-        label = 'OFF';
-        icon = Icons.qr_code_2_rounded;
-      case 'recipe':
-        bgColor = const Color(0xFF22D3EE).withValues(alpha: 0.15);
-        fgColor = const Color(0xFF22D3EE);
-        label = 'Recette';
-        icon = null;
-      default:
-        bgColor = const Color(0xFFA78BFA).withValues(alpha: 0.15);
-        fgColor = const Color(0xFFA78BFA);
-        label = 'Perso';
-        icon = null;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: fgColor.withValues(alpha: 0.55), width: 0.8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 11, color: fgColor),
-            const SizedBox(width: 3),
-          ],
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              color: fgColor,
-              height: 1.1,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MacroFactorFoodRow extends StatelessWidget {
-  const _MacroFactorFoodRow({
-    required this.name,
-    required this.brand,
-    this.stores,
-    required this.source,
-    required this.itemType,
-    required this.quantityG,
-    required this.kcal,
-    required this.proteinG,
-    required this.fatG,
-    required this.carbsG,
-    required this.basketCount,
-    required this.onQuickAdd,
-    required this.onTapRow,
-    this.trailingExtra,
-  });
-
-  final String name;
-  final String? brand;
-  final String? stores;
-  final String source;
-  final String itemType;
-  final double quantityG;
-  final double kcal;
-  final double proteinG;
-  final double fatG;
-  final double carbsG;
-  final int basketCount;
-  final VoidCallback onQuickAdd;
-  final VoidCallback onTapRow;
-  final Widget? trailingExtra;
-
-  @override
-  Widget build(BuildContext context) {
-    final IconData icon;
-    final Color iconColor;
-    switch (source) {
-      case 'ciqual':
-        icon = LucideIcons.leaf;
-        iconColor = const Color(0xFF34D399);
-      case 'off':
-      case 'openfoodfacts':
-        icon = Icons.qr_code_2_rounded;
-        iconColor = const Color(0xFFFBBF24);
-      case 'recipe':
-        icon = LucideIcons.chefHat;
-        iconColor = const Color(0xFF22D3EE);
-      default:
-        icon = LucideIcons.bookmark;
-        iconColor = AppColors.weight;
-    }
-
-    final qtyLabel = quantityG % 1 == 0
-        ? '${quantityG.round()} g'
-        : '${quantityG.toStringAsFixed(1)} g';
-    final metaParts = <String>[
-      name,
-      if (brand != null && brand!.isNotEmpty) brand!,
-      if (stores != null && stores!.isNotEmpty) stores!,
-    ];
-    final displayTitle = metaParts.join(' · ');
-
-    return InkWell(
-      onTap: onTapRow,
-      borderRadius: BorderRadius.circular(10),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
-        child: Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: iconColor.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, size: 17, color: iconColor),
-            ),
-            const SizedBox(width: 11),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          displayTitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      _SourceBadge(source: source),
-                    ],
-                  ),
-                  const SizedBox(height: 3),
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: RichText(
-                      text: TextSpan(
-                        style: AppTheme.numericStyle(
-                          fontSize: 12,
-                          color: AppColors.textSecondary,
-                        ),
-                        children: [
-                          TextSpan(
-                            text: '${kcal.round()} kcal',
-                            style: const TextStyle(
-                              color: AppColors.calories,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const TextSpan(text: ' • '),
-                          TextSpan(
-                            text: '${proteinG.round()}P ',
-                            style: const TextStyle(
-                              color: AppColors.protein,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          TextSpan(
-                            text: '${fatG.round()}L ',
-                            style: const TextStyle(
-                              color: AppColors.fat,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          TextSpan(
-                            text: '${carbsG.round()}G',
-                            style: const TextStyle(
-                              color: AppColors.carbs,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          TextSpan(text: ' • $qtyLabel'),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (trailingExtra != null) trailingExtra!,
-            const SizedBox(width: 8),
-            InkWell(
-              onTap: onQuickAdd,
-              customBorder: const CircleBorder(),
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: basketCount > 0
-                          ? AppColors.calories.withValues(alpha: 0.18)
-                          : AppColors.surfaceElevated,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: basketCount > 0
-                            ? AppColors.calories
-                            : AppColors.border,
-                        width: 1.4,
-                      ),
-                    ),
-                    child: Icon(
-                      LucideIcons.plus,
-                      size: 17,
-                      color: basketCount > 0
-                          ? AppColors.calories
-                          : AppColors.textPrimary,
-                    ),
-                  ),
-                  if (basketCount > 0)
-                    Positioned(
-                      right: -4,
-                      top: -4,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                          vertical: 1,
-                        ),
-                        decoration: const BoxDecoration(
-                          color: AppColors.carbs,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Text(
-                          '$basketCount',
-                          style: AppTheme.numericStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w900,
-                            color: AppColors.background,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ],
         ),
       ),
     );

@@ -6,6 +6,10 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:malvifactor/core/theme/app_theme.dart';
 import 'package:malvifactor/features/food_logger/data/food_repository.dart';
+import 'package:malvifactor/features/food_logger/presentation/barcode_review_sheet.dart';
+import 'package:malvifactor/features/food_logger/presentation/barcode_scanner_screen.dart';
+import 'package:malvifactor/features/food_logger/presentation/widgets/food_search_widgets.dart';
+import 'package:malvifactor/features/food_logger/providers/food_basket_provider.dart';
 import 'package:malvifactor/features/recipes/data/recipe_repository.dart';
 
 class _DraftIngredient {
@@ -103,10 +107,12 @@ class _RecipeEditorScreenState extends ConsumerState<RecipeEditorScreen> {
   Future<void> _addIngredientModal() async {
     final result = await showModalBottomSheet<_DraftIngredient>(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: AppColors.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
       builder: (_) => const _IngredientPickerSheet(),
     );
@@ -486,15 +492,28 @@ class _IngredientPickerSheetState
     extends ConsumerState<_IngredientPickerSheet> {
   final _searchController = TextEditingController();
   final _qtyController = TextEditingController(text: '100');
+  final _qtyFocusNode = FocusNode();
   Timer? _debounce;
+  FoodSourceFilter _sourceFilter = FoodSourceFilter.all;
   List<FoodModel> _results = const [];
-  bool _loading = true;
+  bool _loading = false;
   FoodModel? _selectedFood;
 
   @override
   void initState() {
     super.initState();
-    _runSearch('');
+    _qtyFocusNode.addListener(() {
+      if (_qtyFocusNode.hasFocus && _qtyController.text.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_qtyFocusNode.hasFocus && _qtyController.text.isNotEmpty) {
+            _qtyController.selection = TextSelection(
+              baseOffset: 0,
+              extentOffset: _qtyController.text.length,
+            );
+          }
+        });
+      }
+    });
   }
 
   @override
@@ -502,16 +521,28 @@ class _IngredientPickerSheetState
     _debounce?.cancel();
     _searchController.dispose();
     _qtyController.dispose();
+    _qtyFocusNode.dispose();
     super.dispose();
   }
 
   Future<void> _runSearch(String query) async {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) {
+      _debounce?.cancel();
+      setState(() {
+        _results = const [];
+        _loading = false;
+      });
+      return;
+    }
     setState(() => _loading = true);
     try {
-      final list = await ref.read(foodRepositoryProvider).searchFoods(query);
+      final list = await ref
+          .read(foodRepositoryProvider)
+          .searchFoods(trimmed, limit: 35);
       if (!mounted) return;
       setState(() {
-        _results = list;
+        _results = list.where((food) => food.source != 'recipe').toList();
         _loading = false;
       });
     } catch (_) {
@@ -520,107 +551,481 @@ class _IngredientPickerSheetState
     }
   }
 
+  void _selectFood(FoodModel food) {
+    final defaultQty =
+        (food.lastQuantityG != null && food.lastQuantityG! > 0)
+            ? food.lastQuantityG!
+            : 100.0;
+    final formatted = defaultQty % 1 == 0
+        ? defaultQty.round().toString()
+        : defaultQty.toStringAsFixed(1);
+    setState(() {
+      _selectedFood = food;
+      _qtyController.text = formatted;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _qtyFocusNode.requestFocus();
+      if (_qtyController.text.isNotEmpty) {
+        _qtyController.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: _qtyController.text.length,
+        );
+      }
+    });
+  }
+
+  Future<void> _openBarcodeScanner() async {
+    final food = await Navigator.of(context).push<FoodModel>(
+      MaterialPageRoute(builder: (_) => const BarcodeScannerScreen()),
+    );
+    if (food == null || !mounted) return;
+
+    final reviewed = await showModalBottomSheet<FoodModel>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (_) => BarcodeReviewSheet(food: food),
+    );
+    if (reviewed != null && mounted) {
+      _selectFood(reviewed);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: MediaQuery.of(context).size.height * 0.78,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          14,
-          16,
-          MediaQuery.of(context).viewInsets.bottom + 16,
+    final targetHour = DateTime.now().hour;
+    final suggestionsAsync = ref.watch(foodSuggestionsProvider(targetHour));
+
+    return SafeArea(
+      top: true,
+      bottom: false,
+      child: SizedBox(
+        height: _selectedFood == null
+            ? MediaQuery.of(context).size.height * 0.90
+            : null,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            16,
+            12,
+            16,
+            MediaQuery.of(context).viewInsets.bottom + 16,
+          ),
+          child: _selectedFood == null
+              ? _buildSearchView(suggestionsAsync)
+              : _buildQuantityView(_selectedFood!),
         ),
-        child: _selectedFood == null
-            ? Column(
-                children: [
-                  TextField(
-                    controller: _searchController,
-                    autofocus: true,
-                    decoration: const InputDecoration(
-                      hintText: 'Rechercher un ingrédient (Ciqual / OFF)...',
-                      prefixIcon: Icon(LucideIcons.search, size: 18),
+      ),
+    );
+  }
+
+  Widget _buildSearchView(
+    AsyncValue<FoodSuggestionsResponseModel> suggestionsAsync,
+  ) {
+    final query = _searchController.text.trim();
+    final filteredResults = _results
+        .where(
+          (food) =>
+              _sourceFilter.matches(food.source, includeRecipesInCustom: false),
+        )
+        .toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Center(
+          child: Container(
+            width: 38,
+            height: 4,
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: AppColors.border,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ),
+        Row(
+          children: [
+            const Text(
+              'Ajouter un ingrédient',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            ),
+            const Spacer(),
+            IconButton(
+              icon: const Icon(LucideIcons.x),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _searchController,
+                autofocus: true,
+                textInputAction: TextInputAction.search,
+                onChanged: (q) {
+                  setState(() {});
+                  _debounce?.cancel();
+                  if (q.trim().isEmpty) {
+                    _runSearch('');
+                  } else {
+                    _debounce = Timer(
+                      const Duration(milliseconds: 280),
+                      () => _runSearch(q),
+                    );
+                  }
+                },
+                onSubmitted: _runSearch,
+                decoration: InputDecoration(
+                  hintText: 'Rechercher un ingrédient (Ciqual / OFF)...',
+                  prefixIcon: const Icon(LucideIcons.search, size: 18),
+                  suffixIcon: _searchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(LucideIcons.x, size: 16),
+                          onPressed: () {
+                            _searchController.clear();
+                            _runSearch('');
+                          },
+                        )
+                      : null,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            InkWell(
+              onTap: _openBarcodeScanner,
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceElevated,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: const Icon(
+                  Icons.qr_code_scanner_rounded,
+                  color: AppColors.textPrimary,
+                  size: 22,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (query.isNotEmpty) ...[
+          FoodSearchFilterPills(
+            selected: _sourceFilter,
+            onSelected: (filter) => setState(() => _sourceFilter = filter),
+          ),
+          Expanded(
+            child: _loading
+                ? const Center(
+                    child: CircularProgressIndicator(color: AppColors.calories),
+                  )
+                : filteredResults.isEmpty
+                    ? Center(
+                        child: Text(
+                          _results.isEmpty
+                              ? 'Aucun ingrédient trouvé pour cette recherche.'
+                              : 'Aucun résultat dans ce filtre.',
+                          style: const TextStyle(color: AppColors.textSecondary),
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        itemCount: filteredResults.length,
+                        separatorBuilder: (_, __) => const Divider(),
+                        itemBuilder: (context, index) {
+                          final food = filteredResults[index];
+                          return FoodSearchResultRow(
+                            name: food.name,
+                            brand: food.brand,
+                            stores: food.stores,
+                            source: food.source,
+                            quantityG: 100.0,
+                            kcal: food.kcalPer100g,
+                            proteinG: food.proteinPer100g,
+                            fatG: food.fatPer100g,
+                            carbsG: food.carbsPer100g,
+                            quantityPrefix: '/ ',
+                            onTapRow: () => _selectFood(food),
+                          );
+                        },
+                      ),
+          ),
+        ] else
+          Expanded(
+            child: suggestionsAsync.when(
+              loading: () => const Center(
+                child: CircularProgressIndicator(color: AppColors.calories),
+              ),
+              error: (_, __) => const Center(
+                child: Text(
+                  'Recherchez un ingrédient ci-dessus ou scannez un code-barres.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppColors.textSecondary),
+                ),
+              ),
+              data: (suggestions) {
+                final recentIngredients = suggestions.recentFoods
+                    .where((item) => !item.isRecipe)
+                    .toList();
+                if (recentIngredients.isEmpty) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16),
+                      child: Text(
+                        'Aucun ingrédient récent.\nRecherchez dans Ciqual / OpenFoodFacts ou scannez un produit.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: AppColors.textSecondary),
+                      ),
                     ),
-                    onChanged: (q) {
-                      _debounce?.cancel();
-                      _debounce = Timer(
-                        const Duration(milliseconds: 300),
-                        () => _runSearch(q),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: _loading
-                        ? const Center(
-                            child: CircularProgressIndicator(
-                              color: AppColors.calories,
-                            ),
-                          )
-                        : ListView.builder(
-                            itemCount: _results.length,
-                            itemBuilder: (context, index) {
-                              final food = _results[index];
-                              return ListTile(
-                                title: Text(
-                                  food.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                subtitle: Text(
-                                  '${food.kcalPer100g.round()} kcal / 100g · P ${food.proteinPer100g.round()}g',
-                                  style: AppTheme.numericStyle(
-                                    fontSize: 12,
-                                    color: AppColors.textSecondary,
-                                  ),
-                                ),
-                                onTap: () =>
-                                    setState(() => _selectedFood = food),
-                              );
-                            },
+                  );
+                }
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 6),
+                      child: Text(
+                        'Récents',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.textSecondary,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView.separated(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        itemCount: recentIngredients.length,
+                        separatorBuilder: (_, __) => const Divider(),
+                        itemBuilder: (context, index) {
+                          final item = recentIngredients[index];
+                          return FoodSearchResultRow(
+                            name: item.name,
+                            brand: item.brand,
+                            stores: item.stores,
+                            source: item.source,
+                            quantityG: 100.0,
+                            kcal: item.kcalPer100g,
+                            proteinG: item.proteinPer100g,
+                            fatG: item.fatPer100g,
+                            carbsG: item.carbsPer100g,
+                            quantityPrefix: '/ ',
+                            onTapRow: () => _selectFood(item.toFoodModel()),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildQuantityView(FoodModel food) {
+    final qty =
+        double.tryParse(_qtyController.text.trim().replaceAll(',', '.')) ?? 0.0;
+    final factor = qty > 0 ? qty / 100.0 : 0.0;
+    final previewKcal = food.kcalPer100g * factor;
+    final previewP = food.proteinPer100g * factor;
+    final previewF = food.fatPer100g * factor;
+    final previewC = food.carbsPer100g * factor;
+
+    final metaParts = <String>[
+      if (food.brand != null && food.brand!.isNotEmpty) food.brand!,
+      if (food.stores != null && food.stores!.isNotEmpty) food.stores!,
+    ];
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Center(
+          child: Container(
+            width: 38,
+            height: 4,
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: AppColors.border,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            IconButton(
+              icon: const Icon(LucideIcons.arrowLeft, size: 20),
+              tooltip: 'Retour aux résultats',
+              onPressed: () => setState(() => _selectedFood = null),
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          food.name,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary,
                           ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      FoodSourceBadge(source: food.source),
+                    ],
                   ),
-                ],
-              )
-            : Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    _selectedFood!.name,
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
+                  if (metaParts.isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      metaParts.join(' · '),
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 14),
-                  TextField(
-                    controller: _qtyController,
-                    autofocus: true,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
-                      labelText: 'Quantité (g)',
-                      suffixText: 'g',
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () {
-                      final qty = double.tryParse(
-                            _qtyController.text.replaceAll(',', '.'),
-                          ) ??
-                          100.0;
-                      if (qty <= 0) return;
-                      Navigator.of(context).pop(
-                        _DraftIngredient(food: _selectedFood!, quantityG: qty),
-                      );
-                    },
-                    child: const Text('Ajouter l’ingrédient'),
-                  ),
+                  ],
                 ],
               ),
-      ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _qtyController,
+          focusNode: _qtyFocusNode,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          style: AppTheme.numericStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+          ),
+          decoration: const InputDecoration(
+            labelText: 'Quantité (g)',
+            suffixText: 'g',
+          ),
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceElevated,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _MacroPreviewChip(
+                label: 'Calories',
+                value: '${previewKcal.round()}',
+                unit: 'kcal',
+                color: AppColors.calories,
+              ),
+              _MacroPreviewChip(
+                label: 'Protéines',
+                value: '${previewP.round()}',
+                unit: 'g',
+                color: AppColors.protein,
+              ),
+              _MacroPreviewChip(
+                label: 'Lipides',
+                value: '${previewF.round()}',
+                unit: 'g',
+                color: AppColors.fat,
+              ),
+              _MacroPreviewChip(
+                label: 'Glucides',
+                value: '${previewC.round()}',
+                unit: 'g',
+                color: AppColors.carbs,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        ElevatedButton(
+          onPressed: qty > 0
+              ? () {
+                  Navigator.of(context).pop(
+                    _DraftIngredient(food: food, quantityG: qty),
+                  );
+                }
+              : null,
+          child: const Text('Ajouter l’ingrédient'),
+        ),
+      ],
+    );
+  }
+}
+
+class _MacroPreviewChip extends StatelessWidget {
+  const _MacroPreviewChip({
+    required this.label,
+    required this.value,
+    required this.unit,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final String unit;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 10.5,
+            color: AppColors.textMuted,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 2),
+        RichText(
+          text: TextSpan(
+            style: AppTheme.numericStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+            children: [
+              TextSpan(text: value),
+              TextSpan(
+                text: ' $unit',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
