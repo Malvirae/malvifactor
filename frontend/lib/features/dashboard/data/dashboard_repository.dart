@@ -200,6 +200,8 @@ class CheckinPreviewModel {
     required this.periodEnd,
     required this.avgIntakeKcal,
     required this.daysLoggedCount,
+    this.validNutritionDays21d,
+    this.windowDays = 21,
     required this.startTrendWeightKg,
     required this.endTrendWeightKg,
     required this.previousTdeeKcal,
@@ -218,6 +220,8 @@ class CheckinPreviewModel {
   final DateTime periodEnd;
   final double avgIntakeKcal;
   final int daysLoggedCount;
+  final int? validNutritionDays21d;
+  final int windowDays;
   final double startTrendWeightKg;
   final double endTrendWeightKg;
   final double previousTdeeKcal;
@@ -237,6 +241,9 @@ class CheckinPreviewModel {
       periodEnd: DateTime.parse(json['period_end'] as String),
       avgIntakeKcal: (json['avg_intake_kcal'] as num).toDouble(),
       daysLoggedCount: (json['days_logged_count'] as num).toInt(),
+      validNutritionDays21d:
+          (json['valid_nutrition_days_21d'] as num?)?.toInt(),
+      windowDays: (json['window_days'] as num?)?.toInt() ?? 21,
       startTrendWeightKg: (json['start_trend_weight_kg'] as num).toDouble(),
       endTrendWeightKg: (json['end_trend_weight_kg'] as num).toDouble(),
       previousTdeeKcal: (json['previous_tdee_kcal'] as num).toDouble(),

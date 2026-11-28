@@ -15,7 +15,6 @@ import 'package:malvifactor/features/more/presentation/health_sync_screen.dart';
 import 'package:malvifactor/features/more/presentation/network_server_screen.dart';
 import 'package:malvifactor/features/profile/presentation/profile_screen.dart';
 import 'package:malvifactor/features/recipes/presentation/recipes_list_screen.dart';
-import 'package:malvifactor/shared/widgets/weight_entry_dialog.dart';
 
 class MoreScreen extends ConsumerWidget {
   const MoreScreen({super.key});
@@ -91,7 +90,7 @@ class MoreScreen extends ConsumerWidget {
       body: FutureBuilder<String>(
         future: OtaUpdateService.getCurrentVersion(),
         builder: (context, versionSnap) {
-          final version = versionSnap.data ?? '1.3.0';
+          final version = versionSnap.data ?? '1.3.1';
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 6, 16, 28),
@@ -208,13 +207,6 @@ class MoreScreen extends ConsumerWidget {
                         builder: (_) => const RecipesListScreen(),
                       ),
                     ),
-                  ),
-                  _MoreHubRow(
-                    icon: LucideIcons.scale,
-                    tintColor: AppColors.carbs,
-                    title: 'Ajouter une pesée',
-                    subtitle: 'Enregistrer poids et masse grasse',
-                    onTap: () => showManualWeightDialog(context, ref),
                   ),
                 ],
               ),

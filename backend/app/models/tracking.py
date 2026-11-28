@@ -150,3 +150,33 @@ class WeeklyCheckin(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class TargetHistory(Base):
+    """Versioned calorie and macronutrient targets effective from a specific date."""
+
+    __tablename__ = "target_history"
+    __table_args__ = (
+        Index("idx_target_history_user_effective", "user_id", "effective_from"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    effective_from: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    target_kcal: Mapped[float] = mapped_column(Float, nullable=False)
+    target_protein_g: Mapped[float] = mapped_column(Float, nullable=False)
+    target_fat_g: Mapped[float] = mapped_column(Float, nullable=False)
+    target_carbs_g: Mapped[float] = mapped_column(Float, nullable=False)
+    source: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="initial"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

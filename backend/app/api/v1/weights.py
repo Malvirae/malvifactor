@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.api.v1.profile import _get_or_create_profile
 from app.core.database import get_db
 from app.models.tracking import WeightLog, WeightSource
 from app.models.user import User
@@ -15,7 +16,10 @@ from app.schemas.weights import (
     WeightSyncRequest,
     WeightSyncResponse,
 )
-from app.services.tdee_engine import recalculate_weight_trends
+from app.services.tdee_engine import (
+    recalculate_weight_trends,
+    refresh_profile_daily_tdee,
+)
 
 router = APIRouter(prefix="/weights", tags=["weights"])
 
@@ -72,6 +76,8 @@ async def create_manual_weight(
 
     await db.flush()
     await recalculate_weight_trends(db, current_user.id)
+    profile = await _get_or_create_profile(db, current_user)
+    await refresh_profile_daily_tdee(db, profile, commit=True)
     await db.refresh(weight_log)
     return weight_log
 
@@ -113,6 +119,8 @@ async def sync_health_connect_weights(
 
     await db.flush()
     logs = await recalculate_weight_trends(db, current_user.id)
+    profile = await _get_or_create_profile(db, current_user)
+    await refresh_profile_daily_tdee(db, profile, commit=True)
     latest = logs[-1] if logs else None
     return WeightSyncResponse(
         synced_count=len(payload.items),
@@ -144,4 +152,6 @@ async def delete_weight(
     await db.delete(weight_log)
     await db.flush()
     await recalculate_weight_trends(db, current_user.id)
+    profile = await _get_or_create_profile(db, current_user)
+    await refresh_profile_daily_tdee(db, profile, commit=True)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

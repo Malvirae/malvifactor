@@ -160,8 +160,12 @@ class _ExpenditureDetailViewState extends ConsumerState<ExpenditureDetailView> {
     final currentTdee = allValidTdee.isNotEmpty
         ? allValidTdee.last
         : widget.ctx.profile.currentTdeeKcal;
-    final isCalibrated = widget.ctx.preview.confidence == 'high' ||
-        widget.ctx.preview.daysLoggedCount >= 14;
+    final validDays = widget.ctx.preview.validNutritionDays21d ??
+        widget.ctx.preview.daysLoggedCount;
+    final windowDays = widget.ctx.preview.windowDays;
+    final isCalibrated =
+        widget.ctx.preview.confidence == 'high' || validDays >= 14;
+    final statusLabel = isCalibrated ? 'Calibré' : 'En actualisation';
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
@@ -442,11 +446,11 @@ class _ExpenditureDetailViewState extends ConsumerState<ExpenditureDetailView> {
         ),
         const SizedBox(height: 10),
         AnalysisMetricCard(
-          valueText: isCalibrated ? 'Calibré' : 'En actualisation',
+          valueText: '$statusLabel · $validDays / $windowDays j',
           valueColor: isCalibrated ? AppColors.carbs : AppColors.fat,
           title: 'Statut de l’algorithme',
           description:
-              'Qualité et complétude des données sur la fenêtre glissante de 21 jours (${widget.ctx.preview.daysLoggedCount} jours valides).',
+              '$statusLabel · $validDays / $windowDays jours de nutrition analysés sur la fenêtre glissante (repas, recettes et ajouts rapides inclus, hors journée en cours).',
         ),
       ],
     );

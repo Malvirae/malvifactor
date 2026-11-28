@@ -1,5 +1,11 @@
 from app.models.food import Food, FoodSource, Recipe, RecipeIngredient
-from app.models.tracking import FoodLog, WeeklyCheckin, WeightLog, WeightSource
+from app.models.tracking import (
+    FoodLog,
+    TargetHistory,
+    WeeklyCheckin,
+    WeightLog,
+    WeightSource,
+)
 from app.models.user import (
     DietStyle,
     GoalType,
@@ -19,6 +25,7 @@ __all__ = [
     "Recipe",
     "RecipeIngredient",
     "Sex",
+    "TargetHistory",
     "User",
     "UserProfile",
     "WeeklyCheckin",

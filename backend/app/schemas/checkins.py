@@ -13,6 +13,8 @@ class CheckinPreviewResponse(BaseModel):
     period_end: date
     avg_intake_kcal: float
     days_logged_count: int
+    valid_nutrition_days_21d: int = 0
+    window_days: int = 21
     start_trend_weight_kg: float
     end_trend_weight_kg: float
     previous_tdee_kcal: float

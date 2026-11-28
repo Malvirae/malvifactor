@@ -12,7 +12,7 @@ from app.core.database import get_db
 from app.models.food import Food, FoodSource, Recipe
 from app.models.tracking import FoodLog
 from app.models.user import User
-from app.services.tdee_engine import get_targets_for_date
+from app.services.tdee_engine import get_targets_for_date, refresh_profile_daily_tdee
 from app.schemas.logs import (
     DayLogsResponse,
     DaySummaryItem,
@@ -245,6 +245,9 @@ async def create_food_log(
     db.add(log)
     await db.commit()
     await db.refresh(log)
+    if log.logged_date < date.today():
+        profile = await _get_or_create_profile(db, current_user)
+        await refresh_profile_daily_tdee(db, profile, commit=True)
     return _serialize_log_item(log, food, recipe)
 
 
@@ -341,6 +344,10 @@ async def batch_create_food_logs(
     for log in created_logs:
         await db.refresh(log)
 
+    if payload.logged_date < date.today():
+        profile = await _get_or_create_profile(db, current_user)
+        await refresh_profile_daily_tdee(db, profile, commit=True)
+
     totals_res = await db.execute(
         select(
             func.sum(FoodLog.kcal),
@@ -393,6 +400,7 @@ async def update_food_log(
 ) -> FoodLogItem:
     """Update a food log entry, recalculating macros if linked to a food/recipe."""
     log = await _get_owned_log(db, log_id, current_user.id)
+    original_date = log.logged_date
 
     if payload.logged_date is not None:
         log.logged_date = payload.logged_date
@@ -453,6 +461,10 @@ async def update_food_log(
 
     await db.commit()
     await db.refresh(log)
+    today = date.today()
+    if original_date < today or log.logged_date < today:
+        profile = await _get_or_create_profile(db, current_user)
+        await refresh_profile_daily_tdee(db, profile, commit=True)
     return _serialize_log_item(log, food, recipe)
 
 
@@ -464,8 +476,12 @@ async def delete_food_log(
 ) -> Response:
     """Delete a food log entry owned by the current user."""
     log = await _get_owned_log(db, log_id, current_user.id)
+    original_date = log.logged_date
     await db.delete(log)
     await db.commit()
+    if original_date < date.today():
+        profile = await _get_or_create_profile(db, current_user)
+        await refresh_profile_daily_tdee(db, profile, commit=True)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -518,6 +534,10 @@ async def copy_food_logs(
     for item in copied_logs:
         await db.refresh(item)
 
+    if payload.target_date < date.today():
+        profile = await _get_or_create_profile(db, current_user)
+        await refresh_profile_daily_tdee(db, profile, commit=True)
+
     return await _load_enriched_logs(db, copied_logs)
 
 
@@ -544,7 +564,10 @@ async def move_food_logs(
         )
 
     moved_logs: list[FoodLog] = []
+    affects_past = payload.target_date < date.today()
     for src in source_logs:
+        if src.logged_date < date.today():
+            affects_past = True
         new_log = FoodLog(
             user_id=current_user.id,
             logged_date=payload.target_date,
@@ -566,6 +589,10 @@ async def move_food_logs(
     for item in moved_logs:
         await db.refresh(item)
 
+    if affects_past:
+        profile = await _get_or_create_profile(db, current_user)
+        await refresh_profile_daily_tdee(db, profile, commit=True)
+
     return await _load_enriched_logs(db, moved_logs)
 
 
@@ -576,6 +603,13 @@ async def batch_delete_food_logs(
     db: AsyncSession = Depends(get_db),
 ) -> FoodLogBatchDeleteResponse:
     """Batch delete selected log entries owned by the current user."""
+    dates_res = await db.execute(
+        select(FoodLog.logged_date).where(
+            FoodLog.user_id == current_user.id,
+            FoodLog.id.in_(payload.log_ids),
+        )
+    )
+    affected_dates = list(dates_res.scalars().all())
     res = await db.execute(
         delete(FoodLog).where(
             FoodLog.user_id == current_user.id,
@@ -583,6 +617,10 @@ async def batch_delete_food_logs(
         )
     )
     await db.commit()
+    today = date.today()
+    if any(d < today for d in affected_dates):
+        profile = await _get_or_create_profile(db, current_user)
+        await refresh_profile_daily_tdee(db, profile, commit=True)
     return FoodLogBatchDeleteResponse(deleted_count=res.rowcount or 0)
 
 

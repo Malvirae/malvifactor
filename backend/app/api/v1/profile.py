@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, desc, select
@@ -7,14 +7,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.food import Food, FoodSource, Recipe
-from app.models.tracking import FoodLog, WeeklyCheckin, WeightLog
+from app.models.tracking import FoodLog, TargetHistory, WeeklyCheckin, WeightLog
 from app.models.user import (
     Sex,
     User,
     UserProfile,
 )
 from app.schemas.profile import ProfileResponse, ProfileUpdate
-from app.services.tdee_engine import calculate_macro_targets
+from app.services.tdee_engine import (
+    calculate_macro_targets,
+    compute_daily_tdee_series,
+    refresh_profile_daily_tdee,
+    upsert_target_history,
+)
 
 router = APIRouter(prefix="/profile", tags=["profile"])
 
@@ -113,7 +118,9 @@ async def get_profile(
     db: AsyncSession = Depends(get_db),
 ) -> UserProfile:
     """Retrieve the authenticated user's physiological profile and nutrition targets."""
-    return await _get_or_create_profile(db, current_user)
+    profile = await _get_or_create_profile(db, current_user)
+    await refresh_profile_daily_tdee(db, profile, commit=True)
+    return profile
 
 
 @router.put("", response_model=ProfileResponse)
@@ -122,14 +129,17 @@ async def update_profile(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> UserProfile:
-    """Update physiological profile and optionally compute Mifflin-St Jeor TDEE & macros."""
+    """Update physiological profile/strategy and version target_history without altering past weeks."""
     profile = await _get_or_create_profile(db, current_user)
     was_onboarded = bool(profile.onboarding_completed)
-    old_tdee = profile.current_tdee_kcal
     old_kcal = profile.current_calorie_target
     old_protein = profile.current_protein_g
     old_fat = profile.current_fat_g
     old_carbs = profile.current_carbs_g
+    old_sex = profile.sex
+    old_birth_date = profile.birth_date
+    old_height_cm = profile.height_cm
+    old_activity_level = profile.activity_level
 
     if payload.display_name is not None and payload.display_name.strip():
         current_user.display_name = payload.display_name.strip()
@@ -151,6 +161,15 @@ async def update_profile(
     for field, value in update_data.items():
         setattr(profile, field, value)
 
+    physiology_changed = (
+        payload.manual_initial_tdee_kcal is not None
+        or payload.neat_level is not None
+        or payload.workouts_per_week is not None
+        or profile.sex != old_sex
+        or profile.birth_date != old_birth_date
+        or profile.height_cm != old_height_cm
+        or profile.activity_level != old_activity_level
+    )
     should_recalculate = (
         payload.recalculate_targets
         or payload.manual_initial_tdee_kcal is not None
@@ -162,12 +181,14 @@ async def update_profile(
         weight_kg = payload.weight_kg or payload.reference_weight_kg
         if weight_kg is None:
             latest_weight_result = await db.execute(
-                select(WeightLog.weight_kg)
+                select(WeightLog)
                 .where(WeightLog.user_id == current_user.id)
                 .order_by(desc(WeightLog.measured_at))
                 .limit(1)
             )
-            weight_kg = latest_weight_result.scalar_one_or_none()
+            latest_weight = latest_weight_result.scalar_one_or_none()
+            if latest_weight is not None:
+                weight_kg = latest_weight.trend_weight_kg or latest_weight.weight_kg
 
         if weight_kg is None and payload.manual_initial_tdee_kcal is None:
             raise HTTPException(
@@ -178,19 +199,48 @@ async def update_profile(
                 ),
             )
 
-        tdee_kcal, calorie_target, protein_g, fat_g, carbs_g = (
-            _calculate_initial_targets(
-                profile,
-                weight_kg or 70.0,
-                body_fat_pct=payload.body_fat_pct,
-                neat_level=payload.neat_level,
-                workouts_per_week=payload.workouts_per_week,
-                workout_type=payload.workout_type,
-                manual_initial_tdee_kcal=payload.manual_initial_tdee_kcal,
+        if not was_onboarded or physiology_changed or profile.initial_tdee_kcal <= 0:
+            tdee_kcal, calorie_target, protein_g, fat_g, carbs_g = (
+                _calculate_initial_targets(
+                    profile,
+                    weight_kg or 70.0,
+                    body_fat_pct=payload.body_fat_pct,
+                    neat_level=payload.neat_level,
+                    workouts_per_week=payload.workouts_per_week,
+                    workout_type=payload.workout_type,
+                    manual_initial_tdee_kcal=payload.manual_initial_tdee_kcal,
+                )
             )
-        )
-        profile.initial_tdee_kcal = tdee_kcal
-        profile.current_tdee_kcal = tdee_kcal
+            profile.initial_tdee_kcal = tdee_kcal
+            profile.current_tdee_kcal = tdee_kcal
+            # If user already has nutrition history, let the daily series reflect current TDEE.
+            series = await compute_daily_tdee_series(db, profile)
+            if series.latest_tdee_kcal > 0:
+                profile.current_tdee_kcal = series.latest_tdee_kcal
+                macros = calculate_macro_targets(
+                    profile, profile.current_tdee_kcal, weight_kg or 70.0
+                )
+                calorie_target = macros.calorie_target
+                protein_g = macros.protein_g
+                fat_g = macros.fat_g
+                carbs_g = macros.carbs_g
+        else:
+            # Strategy-only update: recalculate targets directly from the latest daily TDEE.
+            series = await compute_daily_tdee_series(db, profile)
+            effective_tdee = (
+                series.latest_tdee_kcal
+                if series.latest_tdee_kcal > 0
+                else profile.current_tdee_kcal
+            )
+            profile.current_tdee_kcal = effective_tdee
+            macros = calculate_macro_targets(
+                profile, effective_tdee, weight_kg or series.end_trend_weight_kg
+            )
+            calorie_target = macros.calorie_target
+            protein_g = macros.protein_g
+            fat_g = macros.fat_g
+            carbs_g = macros.carbs_g
+
         profile.current_calorie_target = calorie_target
         profile.current_protein_g = protein_g
         profile.current_fat_g = fat_g
@@ -201,59 +251,29 @@ async def update_profile(
         or profile.current_protein_g != old_protein
         or profile.current_fat_g != old_fat
         or profile.current_carbs_g != old_carbs
-        or profile.current_tdee_kcal != old_tdee
     )
-    if macros_changed:
+    if macros_changed and profile.current_calorie_target > 0:
         today = date.today()
-        earlier_res = await db.execute(
-            select(WeeklyCheckin.id)
-            .where(
-                WeeklyCheckin.user_id == current_user.id,
-                WeeklyCheckin.accepted.is_(True),
-                WeeklyCheckin.checkin_date < today,
-            )
-            .limit(1)
-        )
-        if earlier_res.scalar_one_or_none() is None and was_onboarded and old_tdee > 0 and old_kcal > 0:
-            baseline_date = min(
-                current_user.created_at.date(), today - timedelta(days=1)
-            )
-            db.add(
-                WeeklyCheckin(
-                    user_id=current_user.id,
-                    checkin_date=baseline_date,
-                    period_start=baseline_date,
-                    period_end=baseline_date,
-                    avg_intake_kcal=0.0,
-                    days_logged_count=0,
-                    start_trend_weight_kg=0.0,
-                    end_trend_weight_kg=0.0,
-                    calculated_tdee_kcal=old_tdee,
-                    new_calorie_target=old_kcal,
-                    new_protein_g=old_protein,
-                    new_fat_g=old_fat,
-                    new_carbs_g=old_carbs,
-                    accepted=True,
+        await upsert_target_history(
+            db,
+            current_user.id,
+            effective_from=today,
+            target_kcal=profile.current_calorie_target,
+            target_protein_g=profile.current_protein_g,
+            target_fat_g=profile.current_fat_g,
+            target_carbs_g=profile.current_carbs_g,
+            source="initial" if not was_onboarded else "manual",
+            preserve_previous=(
+                (
+                    current_user.created_at.date(),
+                    old_kcal,
+                    old_protein,
+                    old_fat,
+                    old_carbs,
                 )
-            )
-
-        db.add(
-            WeeklyCheckin(
-                user_id=current_user.id,
-                checkin_date=today,
-                period_start=today,
-                period_end=today,
-                avg_intake_kcal=0.0,
-                days_logged_count=0,
-                start_trend_weight_kg=0.0,
-                end_trend_weight_kg=0.0,
-                calculated_tdee_kcal=profile.current_tdee_kcal,
-                new_calorie_target=profile.current_calorie_target,
-                new_protein_g=profile.current_protein_g,
-                new_fat_g=profile.current_fat_g,
-                new_carbs_g=profile.current_carbs_g,
-                accepted=True,
-            )
+                if was_onboarded and old_kcal > 0
+                else None
+            ),
         )
 
     await db.commit()
@@ -271,6 +291,9 @@ async def reset_user_data(
     await db.execute(delete(WeightLog).where(WeightLog.user_id == current_user.id))
     await db.execute(
         delete(WeeklyCheckin).where(WeeklyCheckin.user_id == current_user.id)
+    )
+    await db.execute(
+        delete(TargetHistory).where(TargetHistory.user_id == current_user.id)
     )
     await db.execute(
         delete(Recipe).where(Recipe.created_by_user_id == current_user.id)

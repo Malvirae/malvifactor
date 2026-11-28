@@ -7,14 +7,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.api.v1.profile import _get_or_create_profile
 from app.core.database import get_db
-from app.models.tracking import FoodLog, WeeklyCheckin, WeightLog
+from app.models.tracking import FoodLog, TargetHistory, WeeklyCheckin, WeightLog
 from app.models.user import User
 from app.schemas.checkins import (
     AnalyticsPoint,
     CheckinPreviewResponse,
     WeeklyCheckinResponse,
 )
-from app.services.tdee_engine import compute_adaptive_checkin
+from app.services.tdee_engine import (
+    compute_adaptive_checkin,
+    compute_daily_tdee_series,
+    get_target_history_rows,
+    is_real_weekly_checkin_clause,
+    upsert_target_history,
+)
 
 router = APIRouter(prefix="/checkins", tags=["checkins"])
 
@@ -24,15 +30,26 @@ async def preview_checkin(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CheckinPreviewResponse:
-    """Compute adaptive TDEE and macro recommendations without persisting."""
+    """Compute adaptive TDEE and macro recommendations without persisting targets."""
     profile = await _get_or_create_profile(db, current_user)
     comp = await compute_adaptive_checkin(db, profile)
+
+    # Keep live daily TDEE fresh on profile without ever altering frozen weekly targets.
+    if (
+        comp.calculated_tdee_kcal > 0
+        and round(profile.current_tdee_kcal, 0) != comp.calculated_tdee_kcal
+    ):
+        profile.current_tdee_kcal = comp.calculated_tdee_kcal
+        await db.commit()
+
     return CheckinPreviewResponse(
         checkin_date=comp.checkin_date,
         period_start=comp.period_start,
         period_end=comp.period_end,
         avg_intake_kcal=comp.avg_intake_kcal,
         days_logged_count=comp.days_logged_count,
+        valid_nutrition_days_21d=comp.valid_nutrition_days_21d,
+        window_days=comp.window_days,
         start_trend_weight_kg=comp.start_trend_weight_kg,
         end_trend_weight_kg=comp.end_trend_weight_kg,
         previous_tdee_kcal=comp.previous_tdee_kcal,
@@ -56,8 +73,13 @@ async def accept_checkin(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> WeeklyCheckin:
-    """Persist weekly check-in and update user profile TDEE and macro targets."""
+    """Persist weekly check-in, update profile targets, and version target_history."""
     profile = await _get_or_create_profile(db, current_user)
+    old_kcal = profile.current_calorie_target
+    old_protein = profile.current_protein_g
+    old_fat = profile.current_fat_g
+    old_carbs = profile.current_carbs_g
+
     comp = await compute_adaptive_checkin(db, profile)
     if not comp.is_due:
         raise HTTPException(
@@ -89,6 +111,24 @@ async def accept_checkin(
     profile.current_fat_g = comp.new_fat_g
     profile.current_carbs_g = comp.new_carbs_g
 
+    await upsert_target_history(
+        db,
+        current_user.id,
+        effective_from=comp.checkin_date,
+        target_kcal=comp.new_calorie_target,
+        target_protein_g=comp.new_protein_g,
+        target_fat_g=comp.new_fat_g,
+        target_carbs_g=comp.new_carbs_g,
+        source="checkin",
+        preserve_previous=(
+            current_user.created_at.date(),
+            old_kcal,
+            old_protein,
+            old_fat,
+            old_carbs,
+        ),
+    )
+
     await db.commit()
     await db.refresh(checkin)
     return checkin
@@ -105,6 +145,7 @@ async def list_checkins(
         .where(
             WeeklyCheckin.user_id == current_user.id,
             WeeklyCheckin.accepted.is_(True),
+            is_real_weekly_checkin_clause(),
         )
         .order_by(desc(WeeklyCheckin.checkin_date), desc(WeeklyCheckin.created_at))
     )
@@ -117,7 +158,7 @@ async def get_analytics(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[AnalyticsPoint]:
-    """Return daily intake, weight, trend weight, and estimated TDEE series."""
+    """Return daily intake, weight, trend weight, versioned target, and daily adaptive TDEE."""
     profile = await _get_or_create_profile(db, current_user)
     end_date = date.today()
     if days == 0:
@@ -131,10 +172,9 @@ async def get_analytics(
                 FoodLog.user_id == current_user.id
             )
         )
-        min_checkin_res = await db.execute(
-            select(func.min(WeeklyCheckin.checkin_date)).where(
-                WeeklyCheckin.user_id == current_user.id,
-                WeeklyCheckin.accepted.is_(True),
+        min_target_res = await db.execute(
+            select(func.min(TargetHistory.effective_from)).where(
+                TargetHistory.user_id == current_user.id
             )
         )
         candidates: list[date] = []
@@ -144,9 +184,9 @@ async def get_analytics(
         min_f = min_food_res.scalar_one_or_none()
         if min_f is not None:
             candidates.append(min_f)
-        min_c = min_checkin_res.scalar_one_or_none()
-        if min_c is not None:
-            candidates.append(min_c)
+        min_t = min_target_res.scalar_one_or_none()
+        if min_t is not None:
+            candidates.append(min_t)
         earliest = min(candidates) if candidates else (end_date - timedelta(days=29))
         earliest = min(earliest, end_date)
         computed_days = max(7, (end_date - earliest).days + 1)
@@ -188,53 +228,40 @@ async def get_analytics(
     for w in weights_res.scalars().all():
         weight_by_day[w.measured_at.date()] = w
 
-    checkins_res = await db.execute(
-        select(WeeklyCheckin)
-        .where(
-            WeeklyCheckin.user_id == current_user.id,
-            WeeklyCheckin.accepted.is_(True),
-            WeeklyCheckin.checkin_date <= end_date,
-        )
-        .order_by(WeeklyCheckin.checkin_date.asc())
+    tdee_series = await compute_daily_tdee_series(
+        db,
+        profile,
+        start_date=start_date,
+        end_date=end_date,
     )
-    checkins = list(checkins_res.scalars().all())
+    if (
+        tdee_series.latest_tdee_kcal > 0
+        and round(profile.current_tdee_kcal, 0) != tdee_series.latest_tdee_kcal
+    ):
+        profile.current_tdee_kcal = tdee_series.latest_tdee_kcal
+        await db.commit()
+
+    # Batch-resolve versioned targets from target_history (zero N+1 queries, zero retroactive overwrite).
+    history_rows = await get_target_history_rows(db, current_user.id, end_date)
+    target_idx = 0
+    fallback_target_kcal = round(
+        history_rows[0].target_kcal
+        if history_rows
+        else profile.current_calorie_target,
+        0,
+    )
+    current_target_kcal = fallback_target_kcal
 
     points: list[AnalyticsPoint] = []
-    checkin_idx = 0
-    fallback_tdee = round(
-        profile.current_tdee_kcal
-        if profile.current_tdee_kcal > 0
-        else max(profile.initial_tdee_kcal, 0.0),
-        0,
-    )
-    current_est_tdee = round(
-        profile.initial_tdee_kcal
-        if profile.initial_tdee_kcal > 0
-        else fallback_tdee,
-        0,
-    )
-    current_target_kcal = round(profile.current_calorie_target, 0)
-
     for offset in range(days):
         day = start_date + timedelta(days=offset)
         while (
-            checkin_idx < len(checkins)
-            and checkins[checkin_idx].checkin_date <= day
+            target_idx < len(history_rows)
+            and history_rows[target_idx].effective_from <= day
         ):
-            if checkins[checkin_idx].calculated_tdee_kcal > 0:
-                current_est_tdee = round(
-                    checkins[checkin_idx].calculated_tdee_kcal, 0
-                )
-            if checkins[checkin_idx].new_calorie_target > 0:
-                current_target_kcal = round(
-                    checkins[checkin_idx].new_calorie_target, 0
-                )
-            checkin_idx += 1
-
-        if not checkins or current_est_tdee <= 0:
-            current_est_tdee = fallback_tdee
-        if not checkins:
-            current_target_kcal = round(profile.current_calorie_target, 0)
+            if history_rows[target_idx].target_kcal > 0:
+                current_target_kcal = round(history_rows[target_idx].target_kcal, 0)
+            target_idx += 1
 
         w_entry = weight_by_day.get(day)
         points.append(
@@ -244,7 +271,9 @@ async def get_analytics(
                 target_kcal=current_target_kcal,
                 weight_kg=w_entry.weight_kg if w_entry else None,
                 trend_weight_kg=w_entry.trend_weight_kg if w_entry else None,
-                estimated_tdee_kcal=current_est_tdee,
+                estimated_tdee_kcal=tdee_series.daily_tdee.get(
+                    day, tdee_series.latest_tdee_kcal
+                ),
             )
         )
 
