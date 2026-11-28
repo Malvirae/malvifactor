@@ -1,9 +1,11 @@
 from datetime import date, datetime, time, timedelta
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
@@ -17,6 +19,9 @@ from app.schemas.food import (
     FoodSuggestionItem,
     FoodSuggestionsResponse,
     FoodUpdate,
+    GroupedFoodItem,
+    GroupedFoodSearchResponse,
+    GroupedFoodSection,
 )
 from app.services.openfoodfacts import (
     get_or_fetch_food_by_barcode,
@@ -638,6 +643,466 @@ async def search_foods(
 
     scored_responses.sort(key=lambda item: (-item[0], len(item[1]), item[1]))
     return [item[2] for item in scored_responses[:limit]]
+
+
+def _score_text_match(
+    norm_query: str,
+    tokens: list[str],
+    norm_name: str,
+    norm_extra: str = "",
+) -> float:
+    combined = f"{norm_name} {norm_extra}".strip()
+    score = 0.0
+    if norm_name == norm_query:
+        score += 120.0
+    elif norm_name.startswith(norm_query):
+        score += 75.0
+    elif norm_query in norm_name:
+        score += 40.0
+
+    matched_tokens = sum(1 for t in tokens if t in combined)
+    score += matched_tokens * 18.0
+    if matched_tokens == len(tokens):
+        score += 45.0
+
+    name_matches = sum(1 for t in tokens if t in norm_name)
+    score += name_matches * 10.0
+    return score
+
+
+def _build_grouped_food_item(
+    food: Food,
+    *,
+    last_qty: float | None = None,
+    times_logged: int = 0,
+) -> GroupedFoodItem:
+    preview_qty = last_qty if (last_qty is not None and last_qty > 0) else (
+        food.serving_size_g if food.serving_size_g > 0 else 100.0
+    )
+    factor = preview_qty / 100.0
+    source_str = "openfoodfacts" if food.source == FoodSource.OFF else food.source.value
+    item_type: Literal["standard", "custom"] = (
+        "custom" if food.source == FoodSource.CUSTOM else "standard"
+    )
+    return GroupedFoodItem(
+        id=food.id,
+        item_type=item_type,
+        source=source_str,
+        category=None,
+        name=food.name,
+        brand=food.brand,
+        stores=food.stores,
+        serving_size_g=food.serving_size_g,
+        serving_label=food.serving_label,
+        kcal_per_100g=food.kcal_per_100g,
+        protein_per_100g=food.protein_per_100g,
+        fat_per_100g=food.fat_per_100g,
+        carbs_per_100g=food.carbs_per_100g,
+        fiber_per_100g=food.fiber_per_100g,
+        last_quantity_g=round(last_qty, 1) if last_qty is not None else None,
+        preview_kcal=round(food.kcal_per_100g * factor, 1),
+        preview_protein_g=round(food.protein_per_100g * factor, 1),
+        preview_fat_g=round(food.fat_per_100g * factor, 1),
+        preview_carbs_g=round(food.carbs_per_100g * factor, 1),
+        times_logged=times_logged,
+    )
+
+
+def _build_grouped_recipe_item(
+    recipe: Recipe,
+    *,
+    last_qty: float | None = None,
+    times_logged: int = 0,
+) -> GroupedFoodItem:
+    portion_fields = _recipe_portion_fields(recipe)
+    serving_weight = portion_fields["serving_weight_g"] or 100.0
+    preview_qty = last_qty if (last_qty is not None and last_qty > 0) else serving_weight
+    factor = preview_qty / 100.0
+    return GroupedFoodItem(
+        id=recipe.id,
+        item_type="recipe",
+        source="recipe",
+        category=None,
+        name=recipe.name,
+        brand=None,
+        stores=None,
+        serving_size_g=serving_weight,
+        serving_label="1 portion" if portion_fields["serving_weight_g"] else None,
+        kcal_per_100g=recipe.kcal_per_100g,
+        protein_per_100g=recipe.protein_per_100g,
+        fat_per_100g=recipe.fat_per_100g,
+        carbs_per_100g=recipe.carbs_per_100g,
+        fiber_per_100g=0.0,
+        last_quantity_g=round(last_qty, 1) if last_qty is not None else None,
+        preview_kcal=round(recipe.kcal_per_100g * factor, 1),
+        preview_protein_g=round(recipe.protein_per_100g * factor, 1),
+        preview_fat_g=round(recipe.fat_per_100g * factor, 1),
+        preview_carbs_g=round(recipe.carbs_per_100g * factor, 1),
+        times_logged=times_logged,
+        **portion_fields,
+    )
+
+
+@router.get("/search/grouped", response_model=GroupedFoodSearchResponse)
+async def search_foods_grouped(
+    q: str = Query(default="", description="Multi-token accent-insensitive search query"),
+    scope: Literal["local", "off", "all"] = Query(default="all"),
+    limit_per_group: int = Query(default=25, ge=1, le=50),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> GroupedFoodSearchResponse:
+    """Two-phase categorized search: fast local PostgreSQL (history, custom, common) + async OpenFoodFacts."""
+    query_text = q.strip()
+    tokens = tokenize_search_query(query_text)
+    if not tokens:
+        empty = GroupedFoodSection(total=0, items=[])
+        return GroupedFoodSearchResponse(
+            query=query_text,
+            scope=scope,
+            history=empty if scope in ("local", "all") else None,
+            custom=empty if scope in ("local", "all") else None,
+            common=empty if scope in ("local", "all") else None,
+            openfoodfacts=empty if scope in ("off", "all") else None,
+        )
+
+    norm_query = normalize_search_text(query_text)
+    today = date.today()
+
+    history_section: GroupedFoodSection | None = None
+    custom_section: GroupedFoodSection | None = None
+    common_section: GroupedFoodSection | None = None
+    off_section: GroupedFoodSection | None = None
+
+    food_last_qty: dict[UUID, float] = {}
+    food_counts: dict[UUID, int] = {}
+    recipe_last_qty: dict[UUID, float] = {}
+    recipe_counts: dict[UUID, int] = {}
+
+    if scope in ("local", "all"):
+        # 1. History: single joinedload query over user's logged foods, recipes & quick-adds
+        hist_res = await db.execute(
+            select(FoodLog)
+            .options(joinedload(FoodLog.food), joinedload(FoodLog.recipe))
+            .where(
+                FoodLog.user_id == current_user.id,
+                FoodLog.logged_date <= today + timedelta(days=1),
+                or_(
+                    FoodLog.food_id.is_not(None),
+                    FoodLog.recipe_id.is_not(None),
+                    FoodLog.custom_name.is_not(None),
+                ),
+            )
+            .order_by(
+                FoodLog.logged_date.desc(),
+                FoodLog.logged_time.desc(),
+                FoodLog.created_at.desc(),
+            )
+            .limit(2000)
+        )
+        hist_logs = list(hist_res.scalars().all())
+
+        seen_history: dict[tuple[str, UUID | str], tuple[FoodLog, int, datetime]] = {}
+        for log in hist_logs:
+            log_dt = datetime.combine(
+                log.logged_date, log.logged_time, tzinfo=log.created_at.tzinfo
+            )
+            if log.food_id is not None:
+                key: tuple[str, UUID | str] = ("food", log.food_id)
+                food_counts[log.food_id] = food_counts.get(log.food_id, 0) + 1
+                if log.food_id not in food_last_qty:
+                    food_last_qty[log.food_id] = float(log.quantity_g)
+            elif log.recipe_id is not None:
+                key = ("recipe", log.recipe_id)
+                recipe_counts[log.recipe_id] = recipe_counts.get(log.recipe_id, 0) + 1
+                if log.recipe_id not in recipe_last_qty:
+                    recipe_last_qty[log.recipe_id] = float(log.quantity_g)
+            elif log.custom_name and log.custom_name.strip():
+                norm_q = normalize_search_text(log.custom_name)
+                if not norm_q:
+                    continue
+                key = ("quick", norm_q)
+            else:
+                continue
+
+            if key not in seen_history:
+                seen_history[key] = (log, 1, log_dt)
+            else:
+                prev_log, prev_cnt, prev_dt = seen_history[key]
+                seen_history[key] = (prev_log, prev_cnt + 1, prev_dt)
+
+        scored_history: list[tuple[float, datetime, str, GroupedFoodItem]] = []
+        for (kind, _uid), (log, cnt, last_dt) in seen_history.items():
+            if kind == "food" and log.food is not None:
+                f = log.food
+                if f.created_by_user_id is not None and f.created_by_user_id != current_user.id:
+                    continue
+                n_name = normalize_search_text(f.name)
+                n_extra = f"{normalize_search_text(f.brand)} {normalize_search_text(f.stores)}".strip()
+                combined = f"{n_name} {n_extra}".strip()
+                if not all(t in combined for t in tokens):
+                    continue
+                score = _score_text_match(norm_query, tokens, n_name, n_extra) + min(40.0, cnt * 4.0)
+                item = _build_grouped_food_item(
+                    f, last_qty=float(log.quantity_g), times_logged=cnt
+                )
+                scored_history.append((score, last_dt, n_name, item))
+            elif kind == "recipe" and log.recipe is not None:
+                r = log.recipe
+                if r.created_by_user_id != current_user.id and not r.is_shared:
+                    continue
+                n_name = normalize_search_text(r.name)
+                n_extra = normalize_search_text(r.description)
+                combined = f"{n_name} {n_extra}".strip()
+                if not all(t in combined for t in tokens):
+                    continue
+                score = _score_text_match(norm_query, tokens, n_name, n_extra) + min(40.0, cnt * 4.0)
+                item = _build_grouped_recipe_item(
+                    r, last_qty=float(log.quantity_g), times_logged=cnt
+                )
+                scored_history.append((score, last_dt, n_name, item))
+            elif kind == "quick" and log.custom_name:
+                n_name = normalize_search_text(log.custom_name)
+                if not all(t in n_name for t in tokens):
+                    continue
+                qty = float(log.quantity_g) if log.quantity_g > 0 else 1.0
+                score = _score_text_match(norm_query, tokens, n_name) + min(40.0, cnt * 4.0)
+                item = GroupedFoodItem(
+                    id=log.id,
+                    item_type="quick_add",
+                    source="quick_add",
+                    category=None,
+                    name=log.custom_name.strip(),
+                    brand=None,
+                    stores=None,
+                    serving_size_g=round(qty, 1),
+                    serving_label="Ajout libre",
+                    kcal_per_100g=round(log.kcal, 1),
+                    protein_per_100g=round(log.protein_g, 1),
+                    fat_per_100g=round(log.fat_g, 1),
+                    carbs_per_100g=round(log.carbs_g, 1),
+                    fiber_per_100g=0.0,
+                    last_quantity_g=round(qty, 1),
+                    preview_kcal=round(log.kcal, 1),
+                    preview_protein_g=round(log.protein_g, 1),
+                    preview_fat_g=round(log.fat_g, 1),
+                    preview_carbs_g=round(log.carbs_g, 1),
+                    times_logged=cnt,
+                )
+                scored_history.append((score, last_dt, n_name, item))
+
+        scored_history.sort(key=lambda x: (-x[0], -x[1].timestamp(), x[2]))
+        history_section = GroupedFoodSection(
+            total=len(scored_history),
+            items=[x[3] for x in scored_history[:limit_per_group]],
+        )
+
+        # 2. Custom foods & Recipes (owned / shared)
+        food_token_filters = [
+            or_(
+                func.unaccent(Food.name).ilike(f"%{token}%"),
+                func.unaccent(func.coalesce(Food.brand, "")).ilike(f"%{token}%"),
+                func.unaccent(func.coalesce(Food.stores, "")).ilike(f"%{token}%"),
+            )
+            for token in tokens
+        ]
+        custom_foods_res = await db.execute(
+            select(Food)
+            .where(
+                Food.source == FoodSource.CUSTOM,
+                Food.created_by_user_id == current_user.id,
+                and_(*food_token_filters),
+            )
+            .order_by(Food.name.asc())
+            .limit(60)
+        )
+        custom_foods = list(custom_foods_res.scalars().all())
+
+        recipe_token_filters = [
+            or_(
+                func.unaccent(Recipe.name).ilike(f"%{token}%"),
+                func.unaccent(func.coalesce(Recipe.description, "")).ilike(f"%{token}%"),
+            )
+            for token in tokens
+        ]
+        recipes_res = await db.execute(
+            select(Recipe)
+            .where(
+                or_(
+                    Recipe.created_by_user_id == current_user.id,
+                    Recipe.is_shared.is_(True),
+                ),
+                and_(*recipe_token_filters),
+            )
+            .order_by(Recipe.name.asc())
+            .limit(40)
+        )
+        matched_recipes = list(recipes_res.scalars().all())
+
+        scored_custom: list[tuple[float, str, GroupedFoodItem]] = []
+        for f in custom_foods:
+            n_name = normalize_search_text(f.name)
+            n_extra = f"{normalize_search_text(f.brand)} {normalize_search_text(f.stores)}".strip()
+            score = _score_text_match(norm_query, tokens, n_name, n_extra) + min(
+                25.0, food_counts.get(f.id, 0) * 3.0
+            )
+            scored_custom.append(
+                (
+                    score,
+                    n_name,
+                    _build_grouped_food_item(
+                        f,
+                        last_qty=food_last_qty.get(f.id),
+                        times_logged=food_counts.get(f.id, 0),
+                    ),
+                )
+            )
+        for r in matched_recipes:
+            n_name = normalize_search_text(r.name)
+            n_extra = normalize_search_text(r.description)
+            score = _score_text_match(norm_query, tokens, n_name, n_extra) + min(
+                25.0, recipe_counts.get(r.id, 0) * 3.0
+            )
+            scored_custom.append(
+                (
+                    score,
+                    n_name,
+                    _build_grouped_recipe_item(
+                        r,
+                        last_qty=recipe_last_qty.get(r.id),
+                        times_logged=recipe_counts.get(r.id, 0),
+                    ),
+                )
+            )
+        scored_custom.sort(key=lambda x: (-x[0], len(x[1]), x[1]))
+        custom_section = GroupedFoodSection(
+            total=len(scored_custom),
+            items=[x[2] for x in scored_custom[:limit_per_group]],
+        )
+
+        # 3. Common (official Ciqual foods)
+        common_res = await db.execute(
+            select(Food)
+            .where(
+                Food.source == FoodSource.CIQUAL,
+                and_(*food_token_filters),
+            )
+            .order_by(func.similarity(Food.name, query_text).desc(), Food.name.asc())
+            .limit(60)
+        )
+        common_foods = list(common_res.scalars().all())
+        scored_common: list[tuple[float, str, GroupedFoodItem]] = []
+        for f in common_foods:
+            n_name = normalize_search_text(f.name)
+            score = _score_text_match(norm_query, tokens, n_name) + min(
+                20.0, food_counts.get(f.id, 0) * 3.0
+            )
+            scored_common.append(
+                (
+                    score,
+                    n_name,
+                    _build_grouped_food_item(
+                        f,
+                        last_qty=food_last_qty.get(f.id),
+                        times_logged=food_counts.get(f.id, 0),
+                    ),
+                )
+            )
+        scored_common.sort(key=lambda x: (-x[0], len(x[1]), x[1]))
+        common_section = GroupedFoodSection(
+            total=len(scored_common),
+            items=[x[2] for x in scored_common[:limit_per_group]],
+        )
+
+    if scope in ("off", "all"):
+        # 4. OpenFoodFacts: local cached OFF + live French OpenFoodFacts search
+        off_token_filters = [
+            or_(
+                func.unaccent(Food.name).ilike(f"%{token}%"),
+                func.unaccent(func.coalesce(Food.brand, "")).ilike(f"%{token}%"),
+                func.unaccent(func.coalesce(Food.stores, "")).ilike(f"%{token}%"),
+            )
+            for token in tokens
+        ]
+        cached_off_res = await db.execute(
+            select(Food)
+            .where(
+                Food.source == FoodSource.OFF,
+                and_(*off_token_filters),
+            )
+            .order_by(func.similarity(Food.name, query_text).desc(), Food.name.asc())
+            .limit(35)
+        )
+        cached_off = list(cached_off_res.scalars().all())
+        live_off = await search_openfoodfacts_products(
+            db,
+            query=query_text,
+            tokens=tokens,
+            limit=limit_per_group,
+        )
+
+        merged_off: list[Food] = []
+        seen_ids: set[UUID] = set()
+        seen_ext: set[str] = set()
+        for f in [*cached_off, *live_off]:
+            if f.id in seen_ids:
+                continue
+            if f.external_id and f.external_id in seen_ext:
+                continue
+            seen_ids.add(f.id)
+            if f.external_id:
+                seen_ext.add(f.external_id)
+            merged_off.append(f)
+
+        if merged_off and not food_last_qty:
+            off_ids = [f.id for f in merged_off]
+            qty_res = await db.execute(
+                select(FoodLog.food_id, FoodLog.quantity_g)
+                .distinct(FoodLog.food_id)
+                .where(
+                    FoodLog.user_id == current_user.id,
+                    FoodLog.food_id.in_(off_ids),
+                )
+                .order_by(
+                    FoodLog.food_id,
+                    FoodLog.logged_date.desc(),
+                    FoodLog.logged_time.desc(),
+                    FoodLog.created_at.desc(),
+                )
+            )
+            for row in qty_res.all():
+                if row[0] is not None and row[1] is not None:
+                    food_last_qty[row[0]] = float(row[1])
+
+        scored_off: list[tuple[float, str, GroupedFoodItem]] = []
+        for f in merged_off:
+            n_name = normalize_search_text(f.name)
+            n_extra = f"{normalize_search_text(f.brand)} {normalize_search_text(f.stores)}".strip()
+            score = _score_text_match(norm_query, tokens, n_name, n_extra)
+            scored_off.append(
+                (
+                    score,
+                    n_name,
+                    _build_grouped_food_item(
+                        f,
+                        last_qty=food_last_qty.get(f.id),
+                        times_logged=food_counts.get(f.id, 0),
+                    ),
+                )
+            )
+        scored_off.sort(key=lambda x: (-x[0], len(x[1]), x[1]))
+        off_section = GroupedFoodSection(
+            total=len(scored_off),
+            items=[x[2] for x in scored_off[:limit_per_group]],
+        )
+
+    return GroupedFoodSearchResponse(
+        query=query_text,
+        scope=scope,
+        history=history_section,
+        custom=custom_section,
+        common=common_section,
+        openfoodfacts=off_section,
+    )
 
 
 @router.get("/custom", response_model=list[FoodResponse])

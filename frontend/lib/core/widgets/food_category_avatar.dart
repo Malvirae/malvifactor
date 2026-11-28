@@ -15,6 +15,10 @@ class FoodCategoryStyle {
 class FoodCategoryResolver {
   const FoodCategoryResolver._();
 
+  static final Map<String, FoodCategoryStyle> _cache =
+      <String, FoodCategoryStyle>{};
+  static const int _maxCacheEntries = 1000;
+
   static String normalize(String input) {
     final lower = input.toLowerCase();
     final buf = StringBuffer();
@@ -90,6 +94,27 @@ class FoodCategoryResolver {
   }
 
   static FoodCategoryStyle resolve({
+    required String name,
+    String? source,
+    String? category,
+  }) {
+    final cacheKey = '${source ?? ''}|$name|${category ?? ''}';
+    final cached = _cache[cacheKey];
+    if (cached != null) return cached;
+
+    final resolved = _resolveUncached(
+      name: name,
+      source: source,
+      category: category,
+    );
+    if (_cache.length >= _maxCacheEntries) {
+      _cache.clear();
+    }
+    _cache[cacheKey] = resolved;
+    return resolved;
+  }
+
+  static FoodCategoryStyle _resolveUncached({
     required String name,
     String? source,
     String? category,

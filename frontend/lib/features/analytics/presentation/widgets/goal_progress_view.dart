@@ -252,9 +252,16 @@ class _GoalProgressDetailViewState
                   ),
                 )
               else
-                SizedBox(
-                  height: 185,
-                  child: BarChart(
+                AnimatedSwitcher(
+                  duration: MediaQuery.disableAnimationsOf(context)
+                      ? Duration.zero
+                      : const Duration(milliseconds: 180),
+                  switchInCurve: Curves.easeOutCubic,
+                  child: RepaintBoundary(
+                    key: ValueKey<String>('${range.name}_${_mode.name}'),
+                    child: SizedBox(
+                      height: 185,
+                      child: BarChart(
                     BarChartData(
                       minY: yBounds.minY,
                       maxY: yBounds.maxY,
@@ -372,6 +379,8 @@ class _GoalProgressDetailViewState
                     ),
                   ),
                 ),
+              ),
+            ),
               const SizedBox(height: 12),
               const ChartLegendCard(
                 items: [
@@ -432,16 +441,18 @@ class _GoalProgressDetailViewState
                 ],
               ),
               const SizedBox(height: 10),
-              SizedBox(
-                height: 165,
-                width: double.infinity,
-                child: CustomPaint(
-                  painter: _GoalProgressGaugePainter(
-                    currentWeight: currentWeight ?? targetWeight,
-                    targetWeight: targetWeight,
-                    startWeight: startWeight,
-                    goalType: profile.goalType,
-                    targetLabel: '${formatFrDecimal(targetWeight, 1)} kg',
+              RepaintBoundary(
+                child: SizedBox(
+                  height: 165,
+                  width: double.infinity,
+                  child: CustomPaint(
+                    painter: _GoalProgressGaugePainter(
+                      currentWeight: currentWeight ?? targetWeight,
+                      targetWeight: targetWeight,
+                      startWeight: startWeight,
+                      goalType: profile.goalType,
+                      targetLabel: '${formatFrDecimal(targetWeight, 1)} kg',
+                    ),
                   ),
                 ),
               ),

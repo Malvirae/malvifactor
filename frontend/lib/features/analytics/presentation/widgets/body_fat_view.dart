@@ -240,9 +240,16 @@ class _BodyFatDetailViewState extends ConsumerState<BodyFatDetailView> {
                   ),
                 )
               else
-                SizedBox(
-                  height: 230,
-                  child: LineChart(
+                AnimatedSwitcher(
+                  duration: MediaQuery.disableAnimationsOf(context)
+                      ? Duration.zero
+                      : const Duration(milliseconds: 180),
+                  switchInCurve: Curves.easeOutCubic,
+                  child: RepaintBoundary(
+                    key: ValueKey<String>('${range.name}_$expandedScale'),
+                    child: SizedBox(
+                      height: 230,
+                      child: LineChart(
                     LineChartData(
                       minX: 0,
                       maxX: math.max(1, windowCount - 1).toDouble(),
@@ -433,6 +440,8 @@ class _BodyFatDetailViewState extends ConsumerState<BodyFatDetailView> {
                     ),
                   ),
                 ),
+              ),
+            ),
             ],
           ),
         ),

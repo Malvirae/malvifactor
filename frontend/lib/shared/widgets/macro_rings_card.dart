@@ -1,8 +1,10 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:malvifactor/core/theme/app_theme.dart';
+import 'package:malvifactor/core/widgets/pressable_scale.dart';
 import 'package:malvifactor/features/dashboard/data/dashboard_repository.dart';
 
 class MacroRingsCard extends StatefulWidget {
@@ -66,41 +68,59 @@ class _MacroRingsCardState extends State<MacroRingsCard> {
                   color: isOverKcal ? AppColors.error : AppColors.textPrimary,
                 ),
               ),
-              SizedBox(
-                width: 164,
-                height: 148,
-                child: CustomPaint(
-                  painter: _CalorieArcPainter(
-                    progress: kcalProgress,
-                    trackColor: AppColors.surfaceElevated,
-                    progressColor:
-                        isOverKcal ? AppColors.error : AppColors.calories,
-                  ),
-                  child: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 10),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            '$centerValue',
-                            style: AppTheme.numericStyle(
-                              fontSize: 32,
-                              fontWeight: FontWeight.w800,
-                              color: isOverKcal && _showRemaining
-                                  ? AppColors.error
-                                  : AppColors.textPrimary,
-                            ),
+              RepaintBoundary(
+                child: SizedBox(
+                  width: 164,
+                  height: 148,
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween<double>(end: kcalProgress),
+                    duration: MediaQuery.disableAnimationsOf(context)
+                        ? Duration.zero
+                        : const Duration(milliseconds: 250),
+                    curve: Curves.easeOutCubic,
+                    builder: (_, animatedProgress, child) => CustomPaint(
+                      painter: _CalorieArcPainter(
+                        progress: animatedProgress,
+                        trackColor: AppColors.surfaceElevated,
+                        progressColor:
+                            isOverKcal ? AppColors.error : AppColors.calories,
+                      ),
+                      child: child,
+                    ),
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 10),
+                        child: AnimatedSwitcher(
+                          duration: MediaQuery.disableAnimationsOf(context)
+                              ? Duration.zero
+                              : const Duration(milliseconds: 180),
+                          switchInCurve: Curves.easeOutCubic,
+                          switchOutCurve: Curves.easeOutCubic,
+                          child: Column(
+                            key: ValueKey<String>('${_showRemaining}_$centerValue'),
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '$centerValue',
+                                style: AppTheme.numericStyle(
+                                  fontSize: 32,
+                                  fontWeight: FontWeight.w800,
+                                  color: isOverKcal && _showRemaining
+                                      ? AppColors.error
+                                      : AppColors.textPrimary,
+                                ),
+                              ),
+                              Text(
+                                centerLabel,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
                           ),
-                          Text(
-                            centerLabel,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
@@ -259,26 +279,28 @@ class _CompactMacroColumn extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(999),
-          child: LinearProgressIndicator(
-            value: ratio,
-            minHeight: 5,
-            backgroundColor: AppColors.surfaceElevated,
-            valueColor: AlwaysStoppedAnimation<Color>(
-              isOver ? AppColors.error : color,
-            ),
-          ),
+        AnimatedMacroBar(
+          value: ratio,
+          minHeight: 5,
+          backgroundColor: AppColors.surfaceElevated,
+          color: isOver ? AppColors.error : color,
         ),
         const SizedBox(height: 6),
-        Text(
-          displayText,
-          style: AppTheme.numericStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: isOver && showRemaining
-                ? AppColors.error
-                : AppColors.textPrimary,
+        AnimatedSwitcher(
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : const Duration(milliseconds: 180),
+          switchInCurve: Curves.easeOutCubic,
+          child: Text(
+            displayText,
+            key: ValueKey<String>(displayText),
+            style: AppTheme.numericStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: isOver && showRemaining
+                  ? AppColors.error
+                  : AppColors.textPrimary,
+            ),
           ),
         ),
       ],
@@ -300,9 +322,15 @@ class _ModePill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
         decoration: BoxDecoration(
           color: selected ? AppColors.textPrimary : Colors.transparent,

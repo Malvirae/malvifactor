@@ -119,3 +119,53 @@ class FoodSuggestionsResponse(BaseModel):
     target_hour: int
     time_picks: list[FoodSuggestionItem]
     recent_foods: list[FoodSuggestionItem]
+
+
+class GroupedFoodItem(BaseModel):
+    """Normalized item returned inside categorized search sections."""
+
+    id: UUID
+    item_type: Literal["standard", "custom", "recipe", "quick_add"]
+    source: str
+    category: str | None = None
+    name: str
+    brand: str | None = None
+    stores: str | None = None
+    serving_size_g: float = 100.0
+    serving_label: str | None = None
+    kcal_per_100g: float
+    protein_per_100g: float
+    fat_per_100g: float
+    carbs_per_100g: float
+    fiber_per_100g: float = 0.0
+    last_quantity_g: float | None = None
+    servings: float | None = None
+    total_weight_g: float | None = None
+    serving_weight_g: float | None = None
+    kcal_per_serving: float | None = None
+    protein_per_serving: float | None = None
+    fat_per_serving: float | None = None
+    carbs_per_serving: float | None = None
+    preview_kcal: float
+    preview_protein_g: float
+    preview_fat_g: float
+    preview_carbs_g: float
+    times_logged: int = 0
+
+
+class GroupedFoodSection(BaseModel):
+    """Category bucket with total matched count and ranked items."""
+
+    total: int
+    items: list[GroupedFoodItem]
+
+
+class GroupedFoodSearchResponse(BaseModel):
+    """Two-phase categorized food search response (local PostgreSQL vs OpenFoodFacts)."""
+
+    query: str
+    scope: Literal["local", "off", "all"]
+    history: GroupedFoodSection | None = None
+    custom: GroupedFoodSection | None = None
+    common: GroupedFoodSection | None = None
+    openfoodfacts: GroupedFoodSection | None = None

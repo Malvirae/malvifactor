@@ -3,9 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-import 'package:malvifactor/core/config/journal_preferences_provider.dart';
 import 'package:malvifactor/core/theme/app_theme.dart';
 import 'package:malvifactor/core/widgets/food_category_avatar.dart';
+import 'package:malvifactor/core/widgets/pressable_scale.dart';
 import 'package:malvifactor/features/dashboard/data/dashboard_repository.dart';
 import 'package:malvifactor/features/dashboard/providers/dashboard_provider.dart';
 import 'package:malvifactor/features/food_logger/data/food_repository.dart';
@@ -698,7 +698,6 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
   Widget build(BuildContext context) {
     final selectedDate = ref.watch(journalDateProvider);
     final dayAsync = ref.watch(journalDayProvider);
-    final isCompact = ref.watch(journalCompactModeProvider);
     final entries = dayAsync.valueOrNull?.entries ?? const <FoodLogItemModel>[];
 
     final now = DateTime.now();
@@ -804,10 +803,19 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
                     backgroundColor: AppColors.surface,
                     onRefresh: () => ref.refresh(journalDayProvider.future),
                     child: dayAsync.when(
-                      loading: () => const Center(
-                        child: CircularProgressIndicator(
-                          color: AppColors.calories,
-                        ),
+                      skipLoadingOnRefresh: true,
+                      skipLoadingOnReload: true,
+                      loading: () => ListView(
+                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
+                        children: const [
+                          SkeletonPulseBox(height: 62, borderRadius: 12),
+                          SizedBox(height: 8),
+                          SkeletonPulseBox(height: 62, borderRadius: 12),
+                          SizedBox(height: 8),
+                          SkeletonPulseBox(height: 62, borderRadius: 12),
+                          SizedBox(height: 8),
+                          SkeletonPulseBox(height: 62, borderRadius: 12),
+                        ],
                       ),
                       error: (error, _) => ListView(
                         padding: const EdgeInsets.all(20),
@@ -821,15 +829,19 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
                             selectedDate.day,
                           ),
                         );
+                        final disableAnim =
+                            MediaQuery.disableAnimationsOf(context);
                         return AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 220),
+                          duration: disableAnim
+                              ? Duration.zero
+                              : const Duration(milliseconds: 180),
                           switchInCurve: Curves.easeOutCubic,
                           switchOutCurve: Curves.easeOutCubic,
                           transitionBuilder: (child, animation) {
                             final isIncoming = child.key == dateKey;
                             final beginOffset = isIncoming
-                                ? Offset(0.18 * _daySlideDirection, 0)
-                                : Offset(-0.18 * _daySlideDirection, 0);
+                                ? Offset(0.12 * _daySlideDirection, 0)
+                                : Offset(-0.12 * _daySlideDirection, 0);
                             return FadeTransition(
                               opacity: animation,
                               child: SlideTransition(
@@ -847,7 +859,6 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
                             entries: day.entries,
                             selectedIds: _selectedIds,
                             pendingAction: _pendingBatchAction,
-                            isCompact: isCompact,
                             onAddAtHour: (hour) {
                               if (_pendingBatchAction != null) {
                                 _executePendingAtHour(selectedDate, hour);
@@ -1077,14 +1088,11 @@ class _MiniMacroBar extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 4),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(999),
-          child: LinearProgressIndicator(
-            value: ratio,
-            minHeight: 4,
-            backgroundColor: AppColors.surfaceElevated,
-            valueColor: AlwaysStoppedAnimation<Color>(color),
-          ),
+        AnimatedMacroBar(
+          value: ratio,
+          color: color,
+          minHeight: 4,
+          backgroundColor: AppColors.surfaceElevated,
         ),
       ],
     );
@@ -1098,7 +1106,6 @@ class _HourlyTimelineList extends StatelessWidget {
     required this.entries,
     required this.selectedIds,
     required this.pendingAction,
-    required this.isCompact,
     required this.onAddAtHour,
     required this.onToggleSelect,
     required this.onEditItem,
@@ -1109,7 +1116,6 @@ class _HourlyTimelineList extends StatelessWidget {
   final List<FoodLogItemModel> entries;
   final Set<String> selectedIds;
   final BatchActionType? pendingAction;
-  final bool isCompact;
   final ValueChanged<int> onAddAtHour;
   final ValueChanged<FoodLogItemModel> onToggleSelect;
   final ValueChanged<FoodLogItemModel> onEditItem;
@@ -1132,7 +1138,7 @@ class _HourlyTimelineList extends StatelessWidget {
     return ListView.builder(
       padding: EdgeInsets.fromLTRB(
         12,
-        isCompact ? 8 : 12,
+        8,
         14,
         selectedIds.isNotEmpty ? 84 : 24,
       ),
@@ -1152,16 +1158,17 @@ class _HourlyTimelineList extends StatelessWidget {
             : AppColors.calories;
 
         return Padding(
-          padding: EdgeInsets.only(bottom: isCompact ? 4 : 10),
+          key: ValueKey<int>(hour),
+          padding: const EdgeInsets.only(bottom: 7),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Row(
                 children: [
                   Container(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: isCompact ? 8 : 10,
-                      vertical: isCompact ? 2 : 4,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8.5,
+                      vertical: 3,
                     ),
                     decoration: BoxDecoration(
                       color: AppColors.surfaceElevated,
@@ -1170,19 +1177,19 @@ class _HourlyTimelineList extends StatelessWidget {
                     child: Text(
                       hourLabel,
                       style: AppTheme.numericStyle(
-                        fontSize: isCompact ? 11 : 12,
+                        fontSize: 11.5,
                         fontWeight: FontWeight.w700,
                         color: AppColors.textSecondary,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 7),
                   InkWell(
                     onTap: () => onAddAtHour(hour),
                     borderRadius: BorderRadius.circular(999),
                     child: Container(
-                      width: isCompact ? 22 : 24,
-                      height: isCompact ? 22 : 24,
+                      width: 22,
+                      height: 22,
                       decoration: BoxDecoration(
                         color: pendingAction != null
                             ? actionColor.withValues(alpha: 0.2)
@@ -1216,267 +1223,213 @@ class _HourlyTimelineList extends StatelessWidget {
                 ],
               ),
               if (hourEntries.isNotEmpty) ...[
-                SizedBox(height: isCompact ? 4 : 8),
-                ...hourEntries.map(
-                  (item) {
-                    final isSelected = selectedIds.contains(item.id);
-                    return Padding(
-                      padding: EdgeInsets.only(
-                        left: isCompact ? 34 : 44,
-                        bottom: isCompact ? 4 : 8,
-                      ),
-                      child: Dismissible(
-                        key: ValueKey(item.id),
-                        direction: DismissDirection.endToStart,
-                        background: Container(
-                          alignment: Alignment.centerRight,
-                          padding: const EdgeInsets.only(right: 18),
-                          decoration: BoxDecoration(
-                            color: AppColors.error.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: const Icon(
-                            LucideIcons.trash2,
-                            color: AppColors.error,
-                            size: 20,
-                          ),
-                        ),
-                        onDismissed: (_) => onDeleteItem(item),
-                        child: InkWell(
-                          onTap: () => onToggleSelect(item),
-                          borderRadius: BorderRadius.circular(14),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 140),
-                            padding: EdgeInsets.symmetric(
-                              horizontal: isCompact ? 10 : 12,
-                              vertical: isCompact ? 5 : 10,
+                const SizedBox(height: 5),
+                Padding(
+                  padding: const EdgeInsets.only(left: 28),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      children: [
+                        for (var i = 0; i < hourEntries.length; i++) ...[
+                          if (i > 0)
+                            const Divider(
+                              height: 1,
+                              thickness: 0.6,
+                              color: Colors.white10,
                             ),
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? AppColors.calories.withValues(alpha: 0.10)
-                                  : AppColors.surface,
-                              borderRadius: BorderRadius.circular(
-                                isCompact ? 11 : 14,
-                              ),
-                              border: Border.all(
-                                color: isSelected
-                                    ? AppColors.calories
-                                    : AppColors.border,
-                                width: isSelected ? 1.6 : 1,
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                if (isSelected) ...[
-                                  Container(
-                                    width: isCompact ? 28 : 38,
-                                    height: isCompact ? 28 : 38,
-                                    decoration: BoxDecoration(
-                                      color: AppColors.calories,
-                                      borderRadius: BorderRadius.circular(
-                                        isCompact ? 8 : 10,
-                                      ),
-                                    ),
-                                    child: Icon(
-                                      LucideIcons.check,
-                                      size: isCompact ? 15 : 18,
-                                      color: AppColors.background,
-                                    ),
+                          Builder(
+                            builder: (_) {
+                              final item = hourEntries[i];
+                              final isSelected = selectedIds.contains(item.id);
+                              String? recipePortionHint;
+                              if (item.source == 'recipe' &&
+                                  item.recipeServingWeightG != null &&
+                                  item.recipeServingWeightG! > 0) {
+                                final sw = item.recipeServingWeightG!;
+                                final simple = isSimpleServingMultiple(
+                                  item.quantityG,
+                                  sw,
+                                );
+                                final p = simple
+                                    ? snapPortionValue(item.quantityG, sw)
+                                    : (item.quantityG / sw);
+                                recipePortionHint =
+                                    '${formatFrNumber(p, decimals: 2, trimTrailingZero: simple)} ${formatPortionsWord(p)}';
+                              }
+                              final metaSubtitle =
+                                  buildJournalFoodMetaSubtitle(
+                                name: item.displayName,
+                                brand: item.brand,
+                                stores: item.stores,
+                                source: item.source,
+                                recipePortionHint: recipePortionHint,
+                              );
+
+                              return Dismissible(
+                                key: ValueKey<String>(item.id),
+                                direction: DismissDirection.endToStart,
+                                background: Container(
+                                  alignment: Alignment.centerRight,
+                                  padding: const EdgeInsets.only(right: 16),
+                                  color: AppColors.error.withValues(alpha: 0.2),
+                                  child: const Icon(
+                                    LucideIcons.trash2,
+                                    color: AppColors.error,
+                                    size: 18,
                                   ),
-                                  SizedBox(width: isCompact ? 8 : 10),
-                                ] else ...[
-                                  FoodCategoryAvatar(
-                                    name: item.displayName,
-                                    source: item.source,
-                                    category: item.category,
-                                    size: isCompact ? 28 : 38,
-                                    borderRadius: isCompact ? 8 : 10,
-                                  ),
-                                  SizedBox(width: isCompact ? 8 : 10),
-                                ],
-                                Expanded(
-                                  child: Builder(
-                                    builder: (_) {
-                                      String? recipePortionHint;
-                                      if (item.source == 'recipe' &&
-                                          item.recipeServingWeightG != null &&
-                                          item.recipeServingWeightG! > 0) {
-                                        final sw = item.recipeServingWeightG!;
-                                        final p = isSimpleServingMultiple(
-                                                item.quantityG, sw)
-                                            ? snapPortionValue(
-                                                item.quantityG, sw)
-                                            : (item.quantityG / sw);
-                                        recipePortionHint =
-                                            '${formatFrNumber(p, decimals: isSimpleServingMultiple(item.quantityG, sw) ? 2 : 2, trimTrailingZero: isSimpleServingMultiple(item.quantityG, sw))} ${formatPortionsWord(p)}';
-                                      }
-                                      final metaSubtitle =
-                                          buildJournalFoodMetaSubtitle(
-                                        name: item.displayName,
-                                        brand: item.brand,
-                                        stores: item.stores,
-                                        source: item.source,
-                                        recipePortionHint: recipePortionHint,
-                                      );
-                                      return Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            item.displayName,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontSize: 13.5,
-                                              fontWeight: FontWeight.w600,
+                                ),
+                                onDismissed: (_) => onDeleteItem(item),
+                                child: InkWell(
+                                  onTap: () => onToggleSelect(item),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 140),
+                                    color: isSelected
+                                        ? AppColors.calories
+                                            .withValues(alpha: 0.12)
+                                        : Colors.transparent,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 6.5,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        if (isSelected)
+                                          Container(
+                                            width: 32,
+                                            height: 32,
+                                            decoration: BoxDecoration(
+                                              color: AppColors.calories,
+                                              borderRadius:
+                                                  BorderRadius.circular(9),
                                             ),
+                                            child: const Icon(
+                                              LucideIcons.check,
+                                              size: 16,
+                                              color: AppColors.background,
+                                            ),
+                                          )
+                                        else
+                                          FoodCategoryAvatar(
+                                            name: item.displayName,
+                                            source: item.source,
+                                            category: item.category,
+                                            size: 32,
+                                            borderRadius: 9,
                                           ),
-                                          if (metaSubtitle != null) ...[
-                                            const SizedBox(height: 1),
-                                            Text(
-                                              metaSubtitle,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                fontSize: 11.5,
-                                                color: Color(0xFF94A3B8),
-                                                height: 1.2,
+                                        const SizedBox(width: 9),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                item.displayName,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontSize: 13.5,
+                                                  fontWeight: FontWeight.w600,
+                                                  height: 1.15,
+                                                ),
                                               ),
-                                            ),
-                                          ],
-                                          SizedBox(height: isCompact ? 2 : 4),
-                                      if (isCompact)
-                                        FittedBox(
-                                          fit: BoxFit.scaleDown,
-                                          alignment: Alignment.centerLeft,
-                                          child: Text.rich(
-                                            TextSpan(
-                                              style: AppTheme.numericStyle(
-                                                fontSize: 11,
-                                                color: AppColors.textSecondary,
-                                              ),
-                                              children: [
-                                                TextSpan(
-                                                  text:
-                                                      '${item.kcal.round()} kcal',
+                                              if (metaSubtitle != null) ...[
+                                                const SizedBox(height: 1),
+                                                Text(
+                                                  metaSubtitle,
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
                                                   style: const TextStyle(
-                                                    color: AppColors.calories,
-                                                    fontWeight: FontWeight.w700,
-                                                  ),
-                                                ),
-                                                const TextSpan(text: ' · '),
-                                                TextSpan(
-                                                  text:
-                                                      '${item.proteinG.round()}P',
-                                                  style: const TextStyle(
-                                                    color: AppColors.protein,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                                ),
-                                                const TextSpan(text: ' '),
-                                                TextSpan(
-                                                  text: '${item.fatG.round()}L',
-                                                  style: const TextStyle(
-                                                    color: AppColors.fat,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                                ),
-                                                const TextSpan(text: ' '),
-                                                TextSpan(
-                                                  text:
-                                                      '${item.carbsG.round()}G',
-                                                  style: const TextStyle(
-                                                    color: AppColors.carbs,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                                ),
-                                                TextSpan(
-                                                  text: item.recipeServingWeightG !=
-                                                          null
-                                                      ? ' · ${formatRecipeUnitSubtitle(item.quantityG, item.recipeServingWeightG)}'
-                                                      : ' · ${item.quantityG.round()} g',
-                                                  style: const TextStyle(
-                                                    color: AppColors.textMuted,
+                                                    fontSize: 11,
+                                                    color: Color(0xFF94A3B8),
+                                                    height: 1.15,
                                                   ),
                                                 ),
                                               ],
-                                            ),
-                                            maxLines: 1,
-                                          ),
-                                        )
-                                      else
-                                        FittedBox(
-                                          fit: BoxFit.scaleDown,
-                                          alignment: Alignment.centerLeft,
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Text(
-                                                '${item.kcal.round()} kcal',
-                                                style: AppTheme.numericStyle(
-                                                  fontSize: 11,
-                                                  fontWeight: FontWeight.w700,
-                                                  color: AppColors.calories,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 6),
-                                              _MacroBadge(
-                                                text:
-                                                    '${item.proteinG.round()}P',
-                                                color: AppColors.protein,
-                                              ),
-                                              const SizedBox(width: 4),
-                                              _MacroBadge(
-                                                text: '${item.fatG.round()}L',
-                                                color: AppColors.fat,
-                                              ),
-                                              const SizedBox(width: 4),
-                                              _MacroBadge(
-                                                text:
-                                                    '${item.carbsG.round()}G',
-                                                color: AppColors.carbs,
-                                              ),
-                                              const SizedBox(width: 6),
-                                              Text(
-                                                item.recipeServingWeightG !=
-                                                        null
-                                                    ? '· ${formatRecipeUnitSubtitle(item.quantityG, item.recipeServingWeightG)}'
-                                                    : '· ${item.quantityG.round()}g',
-                                                style: AppTheme.numericStyle(
-                                                  fontSize: 11,
-                                                  color: AppColors.textMuted,
+                                              const SizedBox(height: 3),
+                                              FittedBox(
+                                                fit: BoxFit.scaleDown,
+                                                alignment: Alignment.centerLeft,
+                                                child: Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Text(
+                                                      '${item.kcal.round()} kcal',
+                                                      style: AppTheme
+                                                          .numericStyle(
+                                                        fontSize: 11,
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                        color:
+                                                            AppColors.calories,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 5),
+                                                    _MacroBadge(
+                                                      text:
+                                                          '${item.proteinG.round()}P',
+                                                      color: AppColors.protein,
+                                                    ),
+                                                    const SizedBox(width: 3.5),
+                                                    _MacroBadge(
+                                                      text:
+                                                          '${item.fatG.round()}L',
+                                                      color: AppColors.fat,
+                                                    ),
+                                                    const SizedBox(width: 3.5),
+                                                    _MacroBadge(
+                                                      text:
+                                                          '${item.carbsG.round()}G',
+                                                      color: AppColors.carbs,
+                                                    ),
+                                                    const SizedBox(width: 5),
+                                                    Text(
+                                                      item.recipeServingWeightG !=
+                                                              null
+                                                          ? '· ${formatRecipeUnitSubtitle(item.quantityG, item.recipeServingWeightG)}'
+                                                          : '· ${item.quantityG.round()} g',
+                                                      style: AppTheme
+                                                          .numericStyle(
+                                                        fontSize: 11,
+                                                        color:
+                                                            AppColors.textMuted,
+                                                      ),
+                                                    ),
+                                                  ],
                                                 ),
                                               ),
                                             ],
                                           ),
                                         ),
-                                    ],
-                                  );
-                                },
+                                        IconButton(
+                                          visualDensity: VisualDensity.compact,
+                                          padding: const EdgeInsets.all(4),
+                                          constraints: const BoxConstraints(),
+                                          tooltip: 'Modifier',
+                                          onPressed: () => onEditItem(item),
+                                          icon: const Icon(
+                                            LucideIcons.pencil,
+                                            size: 17,
+                                            color: AppColors.textMuted,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
-                                IconButton(
-                                  visualDensity: VisualDensity.compact,
-                                  padding: isCompact
-                                      ? EdgeInsets.zero
-                                      : const EdgeInsets.all(6),
-                                  constraints:
-                                      isCompact ? const BoxConstraints() : null,
-                                  tooltip: 'Modifier',
-                                  onPressed: () => onEditItem(item),
-                                  icon: Icon(
-                                    LucideIcons.pencil,
-                                    size: 16,
-                                    color: AppColors.textMuted,
-                                  ),
-                                ),
-                              ],
-                            ),
+                              );
+                            },
                           ),
-                        ),
-                      ),
-                    );
-                  },
+                        ],
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ],
@@ -1496,7 +1449,7 @@ class _MacroBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(5),
@@ -1504,7 +1457,7 @@ class _MacroBadge extends StatelessWidget {
       child: Text(
         text,
         style: AppTheme.numericStyle(
-          fontSize: 10,
+          fontSize: 11,
           fontWeight: FontWeight.w700,
           color: color,
         ),

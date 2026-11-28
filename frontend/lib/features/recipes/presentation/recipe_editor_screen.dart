@@ -606,10 +606,16 @@ class _IngredientPickerSheetState
   final _searchController = TextEditingController();
   final _qtyController = TextEditingController(text: '100');
   final _qtyFocusNode = FocusNode();
-  Timer? _debounce;
-  FoodSourceFilter _sourceFilter = FoodSourceFilter.all;
-  List<FoodModel> _results = const [];
-  bool _loading = false;
+  Timer? _localDebounce;
+  Timer? _offDebounce;
+  int _searchSeq = 0;
+  List<GroupedFoodItemModel> _historyItems = const [];
+  List<GroupedFoodItemModel> _customItems = const [];
+  List<GroupedFoodItemModel> _commonItems = const [];
+  List<GroupedFoodItemModel> _offItems = const [];
+  final Set<String> _expandedSections = <String>{};
+  bool _loadingLocal = false;
+  bool _loadingOff = false;
   FoodModel? _selectedFood;
 
   @override
@@ -631,36 +637,83 @@ class _IngredientPickerSheetState
 
   @override
   void dispose() {
-    _debounce?.cancel();
+    _localDebounce?.cancel();
+    _offDebounce?.cancel();
     _searchController.dispose();
     _qtyController.dispose();
     _qtyFocusNode.dispose();
     super.dispose();
   }
 
-  Future<void> _runSearch(String query) async {
+  void _onSearchChanged(String query) {
     final trimmed = query.trim();
-    if (trimmed.isEmpty) {
-      _debounce?.cancel();
-      setState(() {
-        _results = const [];
-        _loading = false;
-      });
-      return;
-    }
-    setState(() => _loading = true);
+    _localDebounce?.cancel();
+    _offDebounce?.cancel();
+    _searchSeq += 1;
+    final seq = _searchSeq;
+
+    setState(() {
+      _expandedSections.clear();
+      if (trimmed.length < 2) {
+        _historyItems = const [];
+        _customItems = const [];
+        _commonItems = const [];
+        _offItems = const [];
+        _loadingLocal = false;
+        _loadingOff = false;
+      } else {
+        _loadingLocal = true;
+        _loadingOff = true;
+        _offItems = const [];
+      }
+    });
+
+    if (trimmed.length < 2) return;
+
+    _localDebounce = Timer(const Duration(milliseconds: 150), () {
+      _fetchGroupedScope(trimmed, scope: 'local', seq: seq);
+    });
+    _offDebounce = Timer(const Duration(milliseconds: 350), () {
+      _fetchGroupedScope(trimmed, scope: 'off', seq: seq);
+    });
+  }
+
+  Future<void> _fetchGroupedScope(
+    String query, {
+    required String scope,
+    required int seq,
+  }) async {
     try {
-      final list = await ref
-          .read(foodRepositoryProvider)
-          .searchFoods(trimmed, limit: 35);
-      if (!mounted) return;
+      final res = await ref.read(foodRepositoryProvider).searchFoodsGrouped(
+            query,
+            scope: scope,
+            limitPerGroup: 25,
+          );
+      if (!mounted || seq != _searchSeq) return;
+      List<GroupedFoodItemModel> onlyFoods(GroupedFoodSectionModel? sec) =>
+          (sec?.items ?? const [])
+              .where((item) => !item.isRecipe && !item.isQuickAdd)
+              .toList();
       setState(() {
-        _results = list.where((food) => food.source != 'recipe').toList();
-        _loading = false;
+        if (scope == 'local') {
+          _historyItems = onlyFoods(res.history);
+          _customItems = onlyFoods(res.custom);
+          _commonItems = onlyFoods(res.common);
+          _loadingLocal = false;
+        } else {
+          _offItems = onlyFoods(res.openfoodfacts);
+          _loadingOff = false;
+        }
       });
     } catch (_) {
-      if (!mounted) return;
-      setState(() => _loading = false);
+      if (!mounted || seq != _searchSeq) return;
+      setState(() {
+        if (scope == 'local') {
+          _loadingLocal = false;
+        } else {
+          _loadingOff = false;
+        }
+      });
     }
   }
 
@@ -739,12 +792,38 @@ class _IngredientPickerSheetState
     AsyncValue<FoodSuggestionsResponseModel> suggestionsAsync,
   ) {
     final query = _searchController.text.trim();
-    final filteredResults = _results
-        .where(
-          (food) =>
-              _sourceFilter.matches(food.source, includeRecipesInCustom: false),
-        )
-        .toList();
+    final hasAnyResult = _historyItems.isNotEmpty ||
+        _customItems.isNotEmpty ||
+        _commonItems.isNotEmpty ||
+        _offItems.isNotEmpty;
+
+    void toggleSection(String key) {
+      setState(() {
+        if (_expandedSections.contains(key)) {
+          _expandedSections.remove(key);
+        } else {
+          _expandedSections.add(key);
+        }
+      });
+    }
+
+    Widget buildIngredientRow(GroupedFoodItemModel item) {
+      return FoodSearchResultRow(
+        key: ValueKey<String>('ing_${item.id}'),
+        name: item.name,
+        brand: item.brand,
+        stores: item.stores,
+        source: item.source,
+        category: item.category,
+        quantityG: 100.0,
+        kcal: item.kcalPer100g,
+        proteinG: item.proteinPer100g,
+        fatG: item.fatPer100g,
+        carbsG: item.carbsPer100g,
+        quantityPrefix: '/ ',
+        onTapRow: () => _selectFood(item.toFoodModel()),
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -781,19 +860,8 @@ class _IngredientPickerSheetState
                 controller: _searchController,
                 autofocus: true,
                 textInputAction: TextInputAction.search,
-                onChanged: (q) {
-                  setState(() {});
-                  _debounce?.cancel();
-                  if (q.trim().isEmpty) {
-                    _runSearch('');
-                  } else {
-                    _debounce = Timer(
-                      const Duration(milliseconds: 280),
-                      () => _runSearch(q),
-                    );
-                  }
-                },
-                onSubmitted: _runSearch,
+                onChanged: _onSearchChanged,
+                onSubmitted: _onSearchChanged,
                 decoration: InputDecoration(
                   hintText: 'Rechercher un ingrédient (Ciqual / OFF)...',
                   prefixIcon: const Icon(LucideIcons.search, size: 18),
@@ -802,7 +870,7 @@ class _IngredientPickerSheetState
                           icon: const Icon(LucideIcons.x, size: 16),
                           onPressed: () {
                             _searchController.clear();
-                            _runSearch('');
+                            _onSearchChanged('');
                           },
                         )
                       : null,
@@ -830,51 +898,74 @@ class _IngredientPickerSheetState
             ),
           ],
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
         if (query.isNotEmpty) ...[
-          FoodSearchFilterPills(
-            selected: _sourceFilter,
-            onSelected: (filter) => setState(() => _sourceFilter = filter),
-          ),
           Expanded(
-            child: _loading
+            child: query.length < 2
                 ? const Center(
-                    child: CircularProgressIndicator(color: AppColors.calories),
+                    child: Text(
+                      'Tapez au moins 2 caractères pour rechercher...',
+                      style: TextStyle(color: AppColors.textSecondary),
+                    ),
                   )
-                : filteredResults.isEmpty
-                    ? Center(
-                        child: Text(
-                          _results.isEmpty
-                              ? 'Aucun ingrédient trouvé pour cette recherche.'
-                              : 'Aucun résultat dans ce filtre.',
-                          style: const TextStyle(color: AppColors.textSecondary),
+                : _loadingLocal && !hasAnyResult
+                    ? const Center(
+                        child: CircularProgressIndicator(
+                          color: AppColors.calories,
                         ),
                       )
-                    : ListView.separated(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        itemCount: filteredResults.length,
-                        separatorBuilder: (_, __) => const Divider(),
-                        itemBuilder: (context, index) {
-                          final food = filteredResults[index];
-                          return FoodSearchResultRow(
-                            name: food.name,
-                            brand: food.brand,
-                            stores: food.stores,
-                            source: food.source,
-                            quantityG: 100.0,
-                            kcal: food.kcalPer100g,
-                            proteinG: food.proteinPer100g,
-                            fatG: food.fatPer100g,
-                            carbsG: food.carbsPer100g,
-                            quantityPrefix: '/ ',
-                            onTapRow: () => _selectFood(food),
-                          );
-                        },
-                      ),
+                    : !_loadingLocal && !_loadingOff && !hasAnyResult
+                        ? const Center(
+                            child: Text(
+                              'Aucun ingrédient trouvé pour cette recherche.',
+                              style: TextStyle(color: AppColors.textSecondary),
+                            ),
+                          )
+                        : ListView(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            children: [
+                              GroupedSearchSectionWidget<GroupedFoodItemModel>(
+                                title: 'Historique',
+                                items: _historyItems,
+                                expanded: _expandedSections.contains('history'),
+                                onToggleExpanded: () =>
+                                    toggleSection('history'),
+                                itemBuilder: (_, item) =>
+                                    buildIngredientRow(item),
+                              ),
+                              GroupedSearchSectionWidget<GroupedFoodItemModel>(
+                                title: 'Perso',
+                                items: _customItems,
+                                expanded: _expandedSections.contains('custom'),
+                                onToggleExpanded: () => toggleSection('custom'),
+                                itemBuilder: (_, item) =>
+                                    buildIngredientRow(item),
+                              ),
+                              GroupedSearchSectionWidget<GroupedFoodItemModel>(
+                                title: 'Communs (Ciqual)',
+                                items: _commonItems,
+                                expanded: _expandedSections.contains('common'),
+                                onToggleExpanded: () => toggleSection('common'),
+                                itemBuilder: (_, item) =>
+                                    buildIngredientRow(item),
+                              ),
+                              GroupedSearchSectionWidget<GroupedFoodItemModel>(
+                                title: 'Open Food Facts',
+                                items: _offItems,
+                                expanded: _expandedSections.contains('off'),
+                                onToggleExpanded: () => toggleSection('off'),
+                                isLoading: _loadingOff,
+                                itemBuilder: (_, item) =>
+                                    buildIngredientRow(item),
+                              ),
+                            ],
+                          ),
           ),
         ] else
           Expanded(
             child: suggestionsAsync.when(
+              skipLoadingOnRefresh: true,
+              skipLoadingOnReload: true,
               loading: () => const Center(
                 child: CircularProgressIndicator(color: AppColors.calories),
               ),

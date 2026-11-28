@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.api.deps import get_current_user
 from app.api.v1.profile import _get_or_create_profile
@@ -123,6 +124,7 @@ async def get_day_logs(
     """Return chronological food timeline and macro totals/targets/remaining for a day."""
     stmt = (
         select(FoodLog)
+        .options(joinedload(FoodLog.food), joinedload(FoodLog.recipe))
         .where(
             FoodLog.user_id == current_user.id,
             FoodLog.logged_date == target_date,
@@ -131,7 +133,7 @@ async def get_day_logs(
     )
     result = await db.execute(stmt)
     logs = list(result.scalars().all())
-    entries = await _load_enriched_logs(db, logs)
+    entries = [_serialize_log_item(log, log.food, log.recipe) for log in logs]
 
     total_kcal = round(sum(e.kcal for e in entries), 1)
     total_protein = round(sum(e.protein_g for e in entries), 1)

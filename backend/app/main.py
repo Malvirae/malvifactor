@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,6 +43,37 @@ async def lifespan(_: FastAPI):
                 "ON foods USING gin (name gin_trgm_ops);"
             )
         )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_foods_brand_trgm "
+                "ON foods USING gin (brand gin_trgm_ops);"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_food_logs_user_logged_date "
+                "ON food_logs (user_id, logged_date);"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_food_logs_user_logged_desc "
+                "ON food_logs (user_id, logged_date DESC, logged_time DESC, created_at DESC);"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_weight_logs_user_measured_at "
+                "ON weight_logs (user_id, measured_at DESC);"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_foods_custom_user_barcode "
+                "ON foods (created_by_user_id, external_id) "
+                "WHERE source = 'custom';"
+            )
+        )
     yield
     await engine.dispose()
 
@@ -54,6 +86,7 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
+app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,

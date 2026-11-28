@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:malvifactor/core/theme/app_theme.dart';
+import 'package:malvifactor/core/widgets/pressable_scale.dart';
 import 'package:malvifactor/features/analytics/presentation/metric_detail_screen.dart';
 import 'package:malvifactor/features/dashboard/data/dashboard_repository.dart';
 import 'package:malvifactor/features/dashboard/providers/dashboard_provider.dart';
@@ -51,8 +52,29 @@ class DashboardScreen extends ConsumerWidget {
         backgroundColor: AppColors.surface,
         onRefresh: () => ref.refresh(dashboardProvider.future),
         child: dashboardAsync.when(
-          loading: () => const Center(
-            child: CircularProgressIndicator(color: AppColors.calories),
+          skipLoadingOnRefresh: true,
+          skipLoadingOnReload: true,
+          loading: () => ListView(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+            children: const [
+              SkeletonPulseBox(height: 280, borderRadius: 18),
+              SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(child: SkeletonPulseBox(height: 142, borderRadius: 16)),
+                  SizedBox(width: 10),
+                  Expanded(child: SkeletonPulseBox(height: 142, borderRadius: 16)),
+                ],
+              ),
+              SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(child: SkeletonPulseBox(height: 142, borderRadius: 16)),
+                  SizedBox(width: 10),
+                  Expanded(child: SkeletonPulseBox(height: 142, borderRadius: 16)),
+                ],
+              ),
+            ],
           ),
           error: (error, _) => ListView(
             padding: const EdgeInsets.all(20),
@@ -221,10 +243,12 @@ class _DashboardBody extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
       children: [
-        MacroRingsCard(
-          totals: data.dayLogs.totals,
-          targets: data.dayLogs.targets,
-          remaining: data.dayLogs.remaining,
+        SoftFadeIn(
+          child: MacroRingsCard(
+            totals: data.dayLogs.totals,
+            targets: data.dayLogs.targets,
+            remaining: data.dayLogs.remaining,
+          ),
         ),
         const SizedBox(height: 20),
         const Text(
@@ -232,63 +256,69 @@ class _DashboardBody extends StatelessWidget {
           style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 10),
-        IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                child: _InsightSparkCard(
-                  title: 'Dépense (TDEE)',
-                  subtitle: '7 derniers jours',
-                  value: '${data.profile.currentTdeeKcal.round()} kcal',
-                  color: AppColors.expenditure,
-                  spots: tdeeSpots,
-                  onTap: () => onOpenMetric(MetricCategory.expenditure),
+        SoftFadeIn(
+          delayMs: 40,
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: _InsightSparkCard(
+                    title: 'Dépense (TDEE)',
+                    subtitle: '7 derniers jours',
+                    value: '${data.profile.currentTdeeKcal.round()} kcal',
+                    color: AppColors.expenditure,
+                    spots: tdeeSpots,
+                    onTap: () => onOpenMetric(MetricCategory.expenditure),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _AdherenceInsightCard(
-                  adherencePct: adherencePct,
-                  onTap: () => onOpenMetric(MetricCategory.goalProgress),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _AdherenceInsightCard(
+                    adherencePct: adherencePct,
+                    onTap: () => onOpenMetric(MetricCategory.goalProgress),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 10),
-        IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                child: _InsightSparkCard(
-                  title: 'Tendance de poids',
-                  subtitle: '7 derniers jours',
-                  value: latestTrend != null
-                      ? '${latestTrend.toStringAsFixed(1).replaceAll('.', ',')} kg'
-                      : '-- kg',
-                  color: AppColors.weight,
-                  spots: weightSpots,
-                  onTap: () => onOpenMetric(MetricCategory.weightTrend),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _InsightSparkCard(
-                  title: fatOrRawTitle,
-                  subtitle: '7 derniers jours',
-                  value: fatOrRawValue,
-                  color: AppColors.bodyFat,
-                  spots: fatOrRawSpots,
-                  onTap: () => onOpenMetric(
-                    hasFat
-                        ? MetricCategory.bodyFat
-                        : MetricCategory.weightTrend,
+        SoftFadeIn(
+          delayMs: 80,
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: _InsightSparkCard(
+                    title: 'Tendance de poids',
+                    subtitle: '7 derniers jours',
+                    value: latestTrend != null
+                        ? '${latestTrend.toStringAsFixed(1).replaceAll('.', ',')} kg'
+                        : '-- kg',
+                    color: AppColors.weight,
+                    spots: weightSpots,
+                    onTap: () => onOpenMetric(MetricCategory.weightTrend),
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _InsightSparkCard(
+                    title: fatOrRawTitle,
+                    subtitle: '7 derniers jours',
+                    value: fatOrRawValue,
+                    color: AppColors.bodyFat,
+                    spots: fatOrRawSpots,
+                    onTap: () => onOpenMetric(
+                      hasFat
+                          ? MetricCategory.bodyFat
+                          : MetricCategory.weightTrend,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 22),
@@ -378,7 +408,7 @@ class _InsightSparkCard extends StatelessWidget {
     final minY = ys.isEmpty ? 0.0 : ys.reduce(math.min) - 1;
     final maxY = ys.isEmpty ? 10.0 : ys.reduce(math.max) + 1;
 
-    return InkWell(
+    return PressableScale(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Container(
@@ -413,34 +443,36 @@ class _InsightSparkCard extends StatelessWidget {
                         ),
                       ),
                     )
-                  : LineChart(
-                      LineChartData(
-                        minX: 0,
-                        maxX: 6,
-                        minY: minY,
-                        maxY: maxY,
-                        gridData: const FlGridData(show: false),
-                        titlesData: const FlTitlesData(show: false),
-                        borderData: FlBorderData(show: false),
-                        lineTouchData: const LineTouchData(enabled: false),
-                        lineBarsData: [
-                          LineChartBarData(
-                            spots: spots,
-                            isCurved: false,
-                            color: color,
-                            barWidth: 2.2,
-                            dotData: FlDotData(
-                              show: true,
-                              getDotPainter: (_, __, ___, ____) =>
-                                  FlDotCirclePainter(
-                                radius: 2.8,
-                                color: AppColors.surface,
-                                strokeWidth: 1.8,
-                                strokeColor: color,
+                  : RepaintBoundary(
+                      child: LineChart(
+                        LineChartData(
+                          minX: 0,
+                          maxX: 6,
+                          minY: minY,
+                          maxY: maxY,
+                          gridData: const FlGridData(show: false),
+                          titlesData: const FlTitlesData(show: false),
+                          borderData: FlBorderData(show: false),
+                          lineTouchData: const LineTouchData(enabled: false),
+                          lineBarsData: [
+                            LineChartBarData(
+                              spots: spots,
+                              isCurved: false,
+                              color: color,
+                              barWidth: 2.2,
+                              dotData: FlDotData(
+                                show: true,
+                                getDotPainter: (_, __, ___, ____) =>
+                                    FlDotCirclePainter(
+                                  radius: 2.8,
+                                  color: AppColors.surface,
+                                  strokeWidth: 1.8,
+                                  strokeColor: color,
+                                ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
             ),
@@ -483,7 +515,7 @@ class _AdherenceInsightCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ratio = (adherencePct / 100.0).clamp(0.0, 1.0);
-    return InkWell(
+    return PressableScale(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Container(
@@ -506,15 +538,11 @@ class _AdherenceInsightCard extends StatelessWidget {
             SizedBox(
               height: 36,
               child: Center(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(999),
-                  child: LinearProgressIndicator(
-                    value: ratio,
-                    minHeight: 8,
-                    backgroundColor: AppColors.surfaceElevated,
-                    valueColor:
-                        const AlwaysStoppedAnimation<Color>(AppColors.carbs),
-                  ),
+                child: AnimatedMacroBar(
+                  value: ratio,
+                  minHeight: 8,
+                  backgroundColor: AppColors.surfaceElevated,
+                  color: AppColors.carbs,
                 ),
               ),
             ),

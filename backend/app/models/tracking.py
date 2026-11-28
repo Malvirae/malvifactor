@@ -16,10 +16,14 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from typing import TYPE_CHECKING
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.food import Food, Recipe
 
 
 class WeightSource(StrEnum):
@@ -71,6 +75,9 @@ class FoodLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+    food: Mapped["Food | None"] = relationship("Food", lazy="noload")
+    recipe: Mapped["Recipe | None"] = relationship("Recipe", lazy="noload")
 
 
 class WeightLog(Base):

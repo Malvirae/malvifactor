@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:malvifactor/core/theme/app_theme.dart';
+import 'package:malvifactor/core/widgets/pressable_scale.dart';
 import 'package:malvifactor/features/dashboard/data/dashboard_repository.dart';
 
 enum AnalyticsRange {
@@ -161,12 +162,16 @@ class PeriodPillsBar extends StatelessWidget {
       child: Row(
         children: AnalyticsRange.values.map((range) {
           final isSelected = range == selected;
+          final disableAnim = MediaQuery.disableAnimationsOf(context);
           return Expanded(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
+            child: PressableScale(
               onTap: () => onChanged(range),
+              scale: 0.96,
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
+                duration: disableAnim
+                    ? Duration.zero
+                    : const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
                 padding: const EdgeInsets.symmetric(vertical: 7),
                 alignment: Alignment.center,
                 decoration: BoxDecoration(

@@ -7,6 +7,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:malvifactor/core/theme/app_theme.dart';
 import 'package:malvifactor/core/widgets/food_category_avatar.dart';
+import 'package:malvifactor/core/widgets/pressable_scale.dart';
 import 'package:malvifactor/features/analytics/providers/analytics_provider.dart';
 import 'package:malvifactor/features/dashboard/data/dashboard_repository.dart';
 import 'package:malvifactor/features/dashboard/providers/dashboard_provider.dart';
@@ -77,11 +78,17 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
   final _quickFatFocusNode = FocusNode();
   final _quickCarbsFocusNode = FocusNode();
 
-  Timer? _debounce;
+  Timer? _localDebounce;
+  Timer? _offDebounce;
+  int _searchSeq = 0;
   int _tabIndex = 0; // 0: Recherche, 1: Recettes, 2: Ajout libre
-  FoodSourceFilter _sourceFilter = FoodSourceFilter.all;
-  List<FoodModel> _searchResults = const [];
-  bool _loadingSearch = false;
+  GroupedFoodSectionModel _historySection = GroupedFoodSectionModel.empty;
+  GroupedFoodSectionModel _customSection = GroupedFoodSectionModel.empty;
+  GroupedFoodSectionModel _commonSection = GroupedFoodSectionModel.empty;
+  GroupedFoodSectionModel _offSection = GroupedFoodSectionModel.empty;
+  final Set<String> _expandedSections = <String>{};
+  bool _loadingLocal = false;
+  bool _loadingOff = false;
   bool _submittingQuick = false;
   bool _basketExpanded = false;
 
@@ -150,7 +157,8 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
 
   @override
   void dispose() {
-    _debounce?.cancel();
+    _localDebounce?.cancel();
+    _offDebounce?.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
     _quickNameController.dispose();
@@ -165,27 +173,74 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
     super.dispose();
   }
 
-  Future<void> _searchFoods(String query) async {
-    final trimmed = query.trim();
-    if (trimmed.isEmpty) {
-      setState(() {
-        _searchResults = const [];
-        _loadingSearch = false;
-      });
-      return;
-    }
+  void _onSearchQueryChanged(String value) {
+    final trimmed = value.trim();
+    _localDebounce?.cancel();
+    _offDebounce?.cancel();
+    _searchSeq += 1;
+    final seq = _searchSeq;
 
-    setState(() => _loadingSearch = true);
+    setState(() {
+      _expandedSections.clear();
+      if (_tabIndex == 2 && trimmed.isNotEmpty) {
+        _tabIndex = 0;
+      }
+      if (trimmed.length < 2) {
+        _historySection = GroupedFoodSectionModel.empty;
+        _customSection = GroupedFoodSectionModel.empty;
+        _commonSection = GroupedFoodSectionModel.empty;
+        _offSection = GroupedFoodSectionModel.empty;
+        _loadingLocal = false;
+        _loadingOff = false;
+      } else {
+        _loadingLocal = true;
+        _loadingOff = true;
+        _offSection = GroupedFoodSectionModel.empty;
+      }
+    });
+
+    if (trimmed.length < 2) return;
+
+    _localDebounce = Timer(const Duration(milliseconds: 150), () {
+      _fetchGroupedScope(trimmed, scope: 'local', seq: seq);
+    });
+    _offDebounce = Timer(const Duration(milliseconds: 350), () {
+      _fetchGroupedScope(trimmed, scope: 'off', seq: seq);
+    });
+  }
+
+  Future<void> _fetchGroupedScope(
+    String query, {
+    required String scope,
+    required int seq,
+  }) async {
     try {
-      final list = await ref.read(foodRepositoryProvider).searchFoods(trimmed);
-      if (!mounted) return;
+      final res = await ref.read(foodRepositoryProvider).searchFoodsGrouped(
+            query,
+            scope: scope,
+            limitPerGroup: 25,
+          );
+      if (!mounted || seq != _searchSeq) return;
       setState(() {
-        _searchResults = list;
-        _loadingSearch = false;
+        if (scope == 'local') {
+          _historySection = res.history ?? GroupedFoodSectionModel.empty;
+          _customSection = res.custom ?? GroupedFoodSectionModel.empty;
+          _commonSection = res.common ?? GroupedFoodSectionModel.empty;
+          _loadingLocal = false;
+        } else {
+          _offSection = res.openfoodfacts ?? GroupedFoodSectionModel.empty;
+          _loadingOff = false;
+        }
       });
     } catch (_) {
-      if (!mounted) return;
-      setState(() => _loadingSearch = false);
+      if (!mounted || seq != _searchSeq) return;
+      setState(() {
+        if (scope == 'local') {
+          _loadingLocal = false;
+        } else {
+          _loadingOff = false;
+        }
+      });
     }
   }
 
@@ -634,10 +689,6 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
     final recipesAsync = ref.watch(recipesListProvider(_searchController.text));
     final suggestionsAsync = ref.watch(foodSuggestionsProvider(basket.targetHour));
 
-    final projectedKcal = _alreadyLoggedKcal + basket.totalKcal;
-    final safeTarget = _dayCalorieTarget <= 0 ? 2000.0 : _dayCalorieTarget;
-    final kcalRatio = (projectedKcal / safeTarget).clamp(0.0, 1.0);
-
     return PopScope(
       canPop: basket.items.isEmpty,
       onPopInvokedWithResult: (didPop, _) {
@@ -695,100 +746,136 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      // Live Calorie Gauge pill
+                      // Live Calorie Gauge pill (isolated with .select)
                       Expanded(
-                        child: Container(
-                          height: 38,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.surfaceElevated,
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(
-                              color: basket.itemCount > 0
-                                  ? AppColors.calories.withValues(alpha: 0.7)
-                                  : AppColors.border,
-                            ),
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: Text(
-                                  '${projectedKcal.round()} / ${safeTarget.round()} kcal',
-                                  style: AppTheme.numericStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w800,
-                                    color: AppColors.textPrimary,
-                                  ),
-                                ),
+                        child: Consumer(
+                          builder: (context, ref, _) {
+                            final basketKcal = ref.watch(
+                              foodBasketProvider.select((b) => b.totalKcal),
+                            );
+                            final basketCount = ref.watch(
+                              foodBasketProvider.select((b) => b.itemCount),
+                            );
+                            final projected = _alreadyLoggedKcal + basketKcal;
+                            final safeT = _dayCalorieTarget <= 0
+                                ? 2000.0
+                                : _dayCalorieTarget;
+                            final ratio = (projected / safeT).clamp(0.0, 1.0);
+                            return Container(
+                              height: 38,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 5,
                               ),
-                              const SizedBox(height: 3),
-                              ClipRRect(
+                              decoration: BoxDecoration(
+                                color: AppColors.surfaceElevated,
                                 borderRadius: BorderRadius.circular(999),
-                                child: LinearProgressIndicator(
-                                  value: kcalRatio,
-                                  minHeight: 3.5,
-                                  backgroundColor: AppColors.border,
-                                  valueColor: const AlwaysStoppedAnimation<Color>(
-                                    AppColors.calories,
-                                  ),
+                                border: Border.all(
+                                  color: basketCount > 0
+                                      ? AppColors.calories
+                                          .withValues(alpha: 0.7)
+                                      : AppColors.border,
                                 ),
                               ),
-                            ],
-                          ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text(
+                                      '${projected.round()} / ${safeT.round()} kcal',
+                                      style: AppTheme.numericStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w800,
+                                        color: AppColors.textPrimary,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  AnimatedMacroBar(
+                                    value: ratio,
+                                    color: AppColors.calories,
+                                    minHeight: 3.5,
+                                    backgroundColor: AppColors.border,
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
                         ),
                       ),
                       const SizedBox(width: 8),
-                      // Plate / Basket toggle pill
-                      _HeaderPillButton(
-                        highlighted: basket.itemCount > 0 || _basketExpanded,
-                        onTap: () =>
-                            setState(() => _basketExpanded = !_basketExpanded),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              LucideIcons.utensils,
-                              size: 15,
-                              color: basket.itemCount > 0
-                                  ? AppColors.calories
-                                  : AppColors.textSecondary,
+                      // Plate / Basket toggle pill (isolated with .select)
+                      Consumer(
+                        builder: (context, ref, _) {
+                          final itemCount = ref.watch(
+                            foodBasketProvider.select((b) => b.itemCount),
+                          );
+                          final disableAnim =
+                              MediaQuery.disableAnimationsOf(context);
+                          return _HeaderPillButton(
+                            highlighted: itemCount > 0 || _basketExpanded,
+                            onTap: () => setState(
+                              () => _basketExpanded = !_basketExpanded,
                             ),
-                            if (basket.itemCount > 0) ...[
-                              const SizedBox(width: 5),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 1.5,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  LucideIcons.utensils,
+                                  size: 15,
+                                  color: itemCount > 0
+                                      ? AppColors.calories
+                                      : AppColors.textSecondary,
                                 ),
-                                decoration: BoxDecoration(
-                                  color: AppColors.calories,
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: Text(
-                                  '${basket.itemCount}',
-                                  style: AppTheme.numericStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w800,
-                                    color: AppColors.background,
+                                if (itemCount > 0) ...[
+                                  const SizedBox(width: 5),
+                                  AnimatedSwitcher(
+                                    duration: disableAnim
+                                        ? Duration.zero
+                                        : const Duration(milliseconds: 200),
+                                    transitionBuilder: (child, anim) =>
+                                        ScaleTransition(
+                                      scale: CurvedAnimation(
+                                        parent: anim,
+                                        curve: Curves.easeOutBack,
+                                      ),
+                                      child: child,
+                                    ),
+                                    child: Container(
+                                      key: ValueKey<int>(itemCount),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 1.5,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.calories,
+                                        borderRadius:
+                                            BorderRadius.circular(999),
+                                      ),
+                                      child: Text(
+                                        '$itemCount',
+                                        style: AppTheme.numericStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w800,
+                                          color: AppColors.background,
+                                        ),
+                                      ),
+                                    ),
                                   ),
+                                ],
+                                const SizedBox(width: 3),
+                                Icon(
+                                  _basketExpanded
+                                      ? LucideIcons.chevronUp
+                                      : LucideIcons.chevronDown,
+                                  size: 14,
+                                  color: AppColors.textSecondary,
                                 ),
-                              ),
-                            ],
-                            const SizedBox(width: 3),
-                            Icon(
-                              _basketExpanded
-                                  ? LucideIcons.chevronUp
-                                  : LucideIcons.chevronDown,
-                              size: 14,
-                              color: AppColors.textSecondary,
+                              ],
                             ),
-                          ],
-                        ),
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -874,19 +961,19 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
                   ),
                 ),
 
-                // Main Scrollable Body
+                // Main Scrollable Body (edge-to-edge hairline rows for Recherche & Recettes)
                 Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    child: switch (_tabIndex) {
-                      0 => _buildSearchOrSuggestionsTab(
-                          suggestionsAsync: suggestionsAsync,
-                          basket: basket,
-                        ),
-                      1 => _buildRecipesTab(recipesAsync, basket),
-                      _ => _buildQuickAddTab(),
-                    },
-                  ),
+                  child: switch (_tabIndex) {
+                    0 => _buildSearchOrSuggestionsTab(
+                        suggestionsAsync: suggestionsAsync,
+                        basket: basket,
+                      ),
+                    1 => _buildRecipesTab(recipesAsync, basket),
+                    _ => Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        child: _buildQuickAddTab(),
+                      ),
+                  },
                 ),
 
                 // Fixed Bottom Action Bar: Search Input + White Logger (X) pill
@@ -937,9 +1024,7 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
                                     visualDensity: VisualDensity.compact,
                                     onPressed: () {
                                       _searchController.clear();
-                                      _debounce?.cancel();
-                                      _searchFoods('');
-                                      setState(() {});
+                                      _onSearchQueryChanged('');
                                     },
                                     icon: const Icon(LucideIcons.x, size: 16),
                                   ),
@@ -956,58 +1041,79 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
                               ],
                             ),
                           ),
-                          onChanged: (value) {
-                            setState(() {
-                              if (_tabIndex == 2 && value.trim().isNotEmpty) {
-                                _tabIndex = 0;
-                              }
-                            });
-                            _debounce?.cancel();
-                            _debounce = Timer(
-                              const Duration(milliseconds: 280),
-                              () => _searchFoods(value),
-                            );
-                          },
+                          onChanged: _onSearchQueryChanged,
                         ),
                       ),
                       const SizedBox(width: 10),
-                      ElevatedButton(
-                        onPressed:
-                            basket.itemCount == 0 || basket.isSubmitting
+                      Consumer(
+                        builder: (context, ref, _) {
+                          final itemCount = ref.watch(
+                            foodBasketProvider.select((b) => b.itemCount),
+                          );
+                          final isSubmitting = ref.watch(
+                            foodBasketProvider.select((b) => b.isSubmitting),
+                          );
+                          final disableAnim =
+                              MediaQuery.disableAnimationsOf(context);
+                          return ElevatedButton(
+                            onPressed: itemCount == 0 || isSubmitting
                                 ? null
                                 : _submitBasket,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFF8FAFC),
-                          foregroundColor: AppColors.background,
-                          disabledBackgroundColor: AppColors.surfaceElevated,
-                          disabledForegroundColor: AppColors.textMuted,
-                          minimumSize: const Size(106, 44),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 11,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                        ),
-                        child: basket.isSubmitting
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: AppColors.background,
-                                ),
-                              )
-                            : Text(
-                                basket.itemCount > 0
-                                    ? 'Logger (${basket.itemCount})'
-                                    : 'Logger',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 14,
-                                ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFF8FAFC),
+                              foregroundColor: AppColors.background,
+                              disabledBackgroundColor:
+                                  AppColors.surfaceElevated,
+                              disabledForegroundColor: AppColors.textMuted,
+                              minimumSize: const Size(106, 44),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 11,
                               ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                            ),
+                            child: isSubmitting
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: AppColors.background,
+                                    ),
+                                  )
+                                : AnimatedSwitcher(
+                                    duration: disableAnim
+                                        ? Duration.zero
+                                        : const Duration(milliseconds: 180),
+                                    transitionBuilder: (child, anim) =>
+                                        ScaleTransition(
+                                      scale: Tween<double>(begin: 0.86, end: 1.0)
+                                          .animate(
+                                        CurvedAnimation(
+                                          parent: anim,
+                                          curve: Curves.easeOutBack,
+                                        ),
+                                      ),
+                                      child: FadeTransition(
+                                        opacity: anim,
+                                        child: child,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      itemCount > 0
+                                          ? 'Logger ($itemCount)'
+                                          : 'Logger',
+                                      key: ValueKey<int>(itemCount),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ),
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -1020,111 +1126,180 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
     );
   }
 
+  Widget _buildGroupedRow(GroupedFoodItemModel item, FoodBasketState basket) {
+    final qty = item.defaultQuantityG;
+    final count = item.isQuickAdd
+        ? basket.countFor(quickName: item.name)
+        : (item.isRecipe
+            ? basket.countFor(recipeId: item.id)
+            : basket.countFor(foodId: item.id));
+    return FoodSearchResultRow(
+      key: ValueKey<String>('${item.itemType}_${item.id}'),
+      name: item.name,
+      brand: item.brand,
+      stores: item.stores,
+      source: item.source,
+      category: item.category,
+      quantityG: qty,
+      customQuantityText: item.isQuickAdd
+          ? 'Ajout libre'
+          : (item.isRecipe && item.servingWeightG != null
+              ? formatRecipeUnitSubtitle(qty, item.servingWeightG)
+              : null),
+      kcal: item.previewKcal,
+      proteinG: item.previewProteinG,
+      fatG: item.previewFatG,
+      carbsG: item.previewCarbsG,
+      basketCount: count,
+      onQuickAdd: () {
+        HapticFeedback.lightImpact();
+        if (item.isQuickAdd) {
+          ref.read(foodBasketProvider.notifier).addQuickAdd(
+                name: item.name,
+                kcal: item.previewKcal,
+                proteinG: item.previewProteinG,
+                fatG: item.previewFatG,
+                carbsG: item.previewCarbsG,
+              );
+        } else {
+          ref
+              .read(foodBasketProvider.notifier)
+              .addFood(item.toFoodModel(), quantityG: qty);
+        }
+      },
+      onTapRow: () async {
+        if (item.isQuickAdd) {
+          setState(() {
+            _quickNameController.text = item.name;
+            _quickKcalController.text = item.previewKcal
+                .toStringAsFixed(item.previewKcal % 1 == 0 ? 0 : 1);
+            _quickProteinController.text = item.previewProteinG
+                .toStringAsFixed(item.previewProteinG % 1 == 0 ? 0 : 1);
+            _quickFatController.text = item.previewFatG
+                .toStringAsFixed(item.previewFatG % 1 == 0 ? 0 : 1);
+            _quickCarbsController.text = item.previewCarbsG
+                .toStringAsFixed(item.previewCarbsG % 1 == 0 ? 0 : 1);
+            _tabIndex = 2;
+          });
+        } else if (item.isRecipe) {
+          final detail =
+              await ref.read(recipeRepositoryProvider).getRecipe(item.id);
+          if (!mounted) return;
+          await _openQuantitySheet(
+            recipe: detail,
+            initialQuantityG: qty,
+          );
+        } else {
+          await _openQuantitySheet(
+            food: item.toFoodModel(),
+            initialQuantityG: qty,
+          );
+        }
+      },
+    );
+  }
+
   Widget _buildSearchOrSuggestionsTab({
     required AsyncValue<FoodSuggestionsResponseModel> suggestionsAsync,
     required FoodBasketState basket,
   }) {
     final query = _searchController.text.trim();
     if (query.isNotEmpty) {
-      final filteredResults = _searchResults
-          .where((food) => _sourceFilter.matches(food.source))
-          .toList();
-
-      return Column(
-        children: [
-          FoodSearchFilterPills(
-            selected: _sourceFilter,
-            onSelected: (filter) => setState(() => _sourceFilter = filter),
+      if (query.length < 2) {
+        return const Center(
+          child: Text(
+            'Tapez au moins 2 caractères pour rechercher...',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
           ),
-          Expanded(
-            child: _loadingSearch
-                ? const Center(
-                    child: CircularProgressIndicator(color: AppColors.calories),
-                  )
-                : filteredResults.isEmpty
-                    ? Center(
-                        child: Text(
-                          _searchResults.isEmpty
-                              ? 'Aucun aliment trouvé pour cette recherche.'
-                              : 'Aucun résultat dans ce filtre.',
-                          style: const TextStyle(color: AppColors.textSecondary),
-                        ),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        itemCount: filteredResults.length,
-                        separatorBuilder: (_, __) => const Divider(),
-                        itemBuilder: (context, index) {
-                          final food = filteredResults[index];
-                          final qty = food.defaultQuantityG;
-                          final factor = qty / 100.0;
-                          final isRecipe = food.source == 'recipe';
-                          final count = isRecipe
-                              ? basket.countFor(recipeId: food.id)
-                              : basket.countFor(foodId: food.id);
-                          return FoodSearchResultRow(
-                            name: food.name,
-                            brand: food.brand,
-                            stores: food.stores,
-                            source: food.source,
-                            category: food.category,
-                            quantityG: qty,
-                            customQuantityText: isRecipe &&
-                                    food.servingWeightG != null
-                                ? formatRecipeUnitSubtitle(
-                                    qty, food.servingWeightG)
-                                : null,
-                            kcal: food.kcalPer100g * factor,
-                            proteinG: food.proteinPer100g * factor,
-                            fatG: food.fatPer100g * factor,
-                            carbsG: food.carbsPer100g * factor,
-                            basketCount: count,
-                            onQuickAdd: () {
-                              HapticFeedback.lightImpact();
-                              ref
-                                  .read(foodBasketProvider.notifier)
-                                  .addFood(food, quantityG: qty);
-                            },
-                            onTapRow: () async {
-                              if (isRecipe) {
-                                final detail = await ref
-                                    .read(recipeRepositoryProvider)
-                                    .getRecipe(food.id);
-                                if (!mounted) return;
-                                await _openQuantitySheet(
-                                  recipe: RecipeSummaryModel(
-                                    id: detail.id,
-                                    name: detail.name,
-                                    description: detail.description,
-                                    totalWeightG: detail.totalWeightG,
-                                    servingsCount: detail.servingsCount,
-                                    kcalPer100g: detail.kcalPer100g,
-                                    proteinPer100g: detail.proteinPer100g,
-                                    fatPer100g: detail.fatPer100g,
-                                    carbsPer100g: detail.carbsPer100g,
-                                    isShared: detail.isShared,
-                                  ),
-                                  initialQuantityG: qty,
-                                );
-                              } else {
-                                await _openQuantitySheet(
-                                  food: food,
-                                  initialQuantityG: qty,
-                                );
-                              }
-                            },
-                          );
-                        },
-                      ),
+        );
+      }
+
+      final hasAnyResult = _historySection.items.isNotEmpty ||
+          _customSection.items.isNotEmpty ||
+          _commonSection.items.isNotEmpty ||
+          _offSection.items.isNotEmpty;
+
+      if (_loadingLocal && !hasAnyResult) {
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          children: const [
+            SkeletonPulseBox(height: 50, borderRadius: 10),
+            SizedBox(height: 8),
+            SkeletonPulseBox(height: 50, borderRadius: 10),
+            SizedBox(height: 8),
+            SkeletonPulseBox(height: 50, borderRadius: 10),
+          ],
+        );
+      }
+
+      if (!_loadingLocal && !_loadingOff && !hasAnyResult) {
+        return const Center(
+          child: Text(
+            'Aucun aliment trouvé pour cette recherche.',
+            style: TextStyle(color: AppColors.textSecondary),
+          ),
+        );
+      }
+
+      void toggle(String key) {
+        setState(() {
+          if (_expandedSections.contains(key)) {
+            _expandedSections.remove(key);
+          } else {
+            _expandedSections.add(key);
+          }
+        });
+      }
+
+      return ListView(
+        padding: const EdgeInsets.only(bottom: 14),
+        children: [
+          GroupedSearchSectionWidget<GroupedFoodItemModel>(
+            title: 'Historique',
+            items: _historySection.items,
+            expanded: _expandedSections.contains('history'),
+            onToggleExpanded: () => toggle('history'),
+            itemBuilder: (_, item) => _buildGroupedRow(item, basket),
+          ),
+          GroupedSearchSectionWidget<GroupedFoodItemModel>(
+            title: 'Perso & Recettes',
+            items: _customSection.items,
+            expanded: _expandedSections.contains('custom'),
+            onToggleExpanded: () => toggle('custom'),
+            itemBuilder: (_, item) => _buildGroupedRow(item, basket),
+          ),
+          GroupedSearchSectionWidget<GroupedFoodItemModel>(
+            title: 'Communs (Ciqual)',
+            items: _commonSection.items,
+            expanded: _expandedSections.contains('common'),
+            onToggleExpanded: () => toggle('common'),
+            itemBuilder: (_, item) => _buildGroupedRow(item, basket),
+          ),
+          GroupedSearchSectionWidget<GroupedFoodItemModel>(
+            title: 'Open Food Facts',
+            items: _offSection.items,
+            expanded: _expandedSections.contains('off'),
+            onToggleExpanded: () => toggle('off'),
+            isLoading: _loadingOff,
+            itemBuilder: (_, item) => _buildGroupedRow(item, basket),
           ),
         ],
       );
     }
 
-    // Empty search query: NEVER show raw Ciqual/OFF list; show Habituels + Récents only.
+    // Empty search query: Habituels (max 5) + Récents only (stale-while-revalidate).
     return suggestionsAsync.when(
-      loading: () => const Center(
-        child: CircularProgressIndicator(color: AppColors.calories),
+      skipLoadingOnRefresh: true,
+      skipLoadingOnReload: true,
+      loading: () => ListView(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        children: const [
+          SkeletonPulseBox(height: 50, borderRadius: 10),
+          SizedBox(height: 8),
+          SkeletonPulseBox(height: 50, borderRadius: 10),
+          SizedBox(height: 8),
+          SkeletonPulseBox(height: 50, borderRadius: 10),
+        ],
       ),
       error: (e, _) => Center(
         child: Column(
@@ -1211,7 +1386,7 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
     final widgets = <Widget>[];
     for (var i = 0; i < items.length; i++) {
       final item = items[i];
-      if (i > 0) widgets.add(const Divider());
+      if (i > 0) widgets.add(kCompactFoodDivider);
       final count = item.isQuickAdd
           ? basket.countFor(quickName: item.name)
           : (item.isRecipe
@@ -1322,7 +1497,7 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
               }
               return ListView.separated(
                 itemCount: recipes.length,
-                separatorBuilder: (_, __) => const Divider(),
+                separatorBuilder: (_, __) => kCompactFoodDivider,
                 itemBuilder: (context, index) {
                   final recipe = recipes[index];
                   final defaultQty = recipe.resolvedServingWeightG ?? 100.0;
@@ -1538,14 +1713,13 @@ class _SectionTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(top: 4, bottom: 6),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
       child: Text(
         text,
         style: const TextStyle(
-          fontSize: 13,
+          fontSize: 14.5,
           fontWeight: FontWeight.w800,
-          letterSpacing: 0.3,
-          color: AppColors.textSecondary,
+          color: AppColors.textPrimary,
         ),
       ),
     );
