@@ -85,6 +85,9 @@ class FoodLogItem(BaseModel):
     fat_g: float
     carbs_g: float
     created_at: datetime
+    recipe_servings: float | None = None
+    recipe_total_weight_g: float | None = None
+    recipe_serving_weight_g: float | None = None
 
 
 class DayLogsResponse(BaseModel):

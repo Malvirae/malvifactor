@@ -21,6 +21,13 @@ class FoodModel {
     required this.carbsPer100g,
     required this.fiberPer100g,
     this.lastQuantityG,
+    this.servings,
+    this.totalWeightG,
+    this.servingWeightG,
+    this.kcalPerServing,
+    this.proteinPerServing,
+    this.fatPerServing,
+    this.carbsPerServing,
   });
 
   final String id;
@@ -37,10 +44,19 @@ class FoodModel {
   final double carbsPer100g;
   final double fiberPer100g;
   final double? lastQuantityG;
+  final double? servings;
+  final double? totalWeightG;
+  final double? servingWeightG;
+  final double? kcalPerServing;
+  final double? proteinPerServing;
+  final double? fatPerServing;
+  final double? carbsPerServing;
 
   double get defaultQuantityG => (lastQuantityG != null && lastQuantityG! > 0)
       ? lastQuantityG!
-      : (servingSizeG > 0 ? servingSizeG : 100.0);
+      : ((servingWeightG != null && servingWeightG! > 0)
+          ? servingWeightG!
+          : (servingSizeG > 0 ? servingSizeG : 100.0));
 
   factory FoodModel.fromJson(Map<String, dynamic> json) {
     return FoodModel(
@@ -58,6 +74,13 @@ class FoodModel {
       carbsPer100g: (json['carbs_per_100g'] as num).toDouble(),
       fiberPer100g: (json['fiber_per_100g'] as num).toDouble(),
       lastQuantityG: (json['last_quantity_g'] as num?)?.toDouble(),
+      servings: (json['servings'] as num?)?.toDouble(),
+      totalWeightG: (json['total_weight_g'] as num?)?.toDouble(),
+      servingWeightG: (json['serving_weight_g'] as num?)?.toDouble(),
+      kcalPerServing: (json['kcal_per_serving'] as num?)?.toDouble(),
+      proteinPerServing: (json['protein_per_serving'] as num?)?.toDouble(),
+      fatPerServing: (json['fat_per_serving'] as num?)?.toDouble(),
+      carbsPerServing: (json['carbs_per_serving'] as num?)?.toDouble(),
     );
   }
 }
@@ -85,6 +108,13 @@ class FoodSuggestionItemModel {
     required this.previewCarbsG,
     required this.lastLoggedAt,
     required this.timesLoggedAtHour,
+    this.servings,
+    this.totalWeightG,
+    this.servingWeightG,
+    this.kcalPerServing,
+    this.proteinPerServing,
+    this.fatPerServing,
+    this.carbsPerServing,
   });
 
   final String id;
@@ -108,6 +138,13 @@ class FoodSuggestionItemModel {
   final double previewCarbsG;
   final DateTime lastLoggedAt;
   final int timesLoggedAtHour;
+  final double? servings;
+  final double? totalWeightG;
+  final double? servingWeightG;
+  final double? kcalPerServing;
+  final double? proteinPerServing;
+  final double? fatPerServing;
+  final double? carbsPerServing;
 
   bool get isRecipe => itemType == 'recipe';
 
@@ -125,6 +162,13 @@ class FoodSuggestionItemModel {
         carbsPer100g: carbsPer100g,
         fiberPer100g: fiberPer100g,
         lastQuantityG: lastQuantityG,
+        servings: servings,
+        totalWeightG: totalWeightG,
+        servingWeightG: servingWeightG,
+        kcalPerServing: kcalPerServing,
+        proteinPerServing: proteinPerServing,
+        fatPerServing: fatPerServing,
+        carbsPerServing: carbsPerServing,
       );
 
   factory FoodSuggestionItemModel.fromJson(Map<String, dynamic> json) {
@@ -150,6 +194,13 @@ class FoodSuggestionItemModel {
       previewCarbsG: (json['preview_carbs_g'] as num).toDouble(),
       lastLoggedAt: DateTime.parse(json['last_logged_at'] as String),
       timesLoggedAtHour: (json['times_logged_at_hour'] as num?)?.toInt() ?? 0,
+      servings: (json['servings'] as num?)?.toDouble(),
+      totalWeightG: (json['total_weight_g'] as num?)?.toDouble(),
+      servingWeightG: (json['serving_weight_g'] as num?)?.toDouble(),
+      kcalPerServing: (json['kcal_per_serving'] as num?)?.toDouble(),
+      proteinPerServing: (json['protein_per_serving'] as num?)?.toDouble(),
+      fatPerServing: (json['fat_per_serving'] as num?)?.toDouble(),
+      carbsPerServing: (json['carbs_per_serving'] as num?)?.toDouble(),
     );
   }
 }

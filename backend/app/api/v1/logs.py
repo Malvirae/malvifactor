@@ -45,6 +45,15 @@ def _serialize_log_item(
         display_name = log.custom_name or "Ajout rapide"
         brand = None
 
+    recipe_servings: float | None = None
+    recipe_total_weight_g: float | None = None
+    recipe_serving_weight_g: float | None = None
+    if recipe is not None:
+        recipe_servings = float(recipe.servings_count) if recipe.servings_count else None
+        recipe_total_weight_g = float(recipe.total_weight_g)
+        if recipe_servings and recipe_servings > 0:
+            recipe_serving_weight_g = round(recipe.total_weight_g / recipe_servings, 1)
+
     return FoodLogItem(
         id=log.id,
         logged_date=log.logged_date,
@@ -60,6 +69,9 @@ def _serialize_log_item(
         fat_g=log.fat_g,
         carbs_g=log.carbs_g,
         created_at=log.created_at,
+        recipe_servings=recipe_servings,
+        recipe_total_weight_g=recipe_total_weight_g,
+        recipe_serving_weight_g=recipe_serving_weight_g,
     )
 
 

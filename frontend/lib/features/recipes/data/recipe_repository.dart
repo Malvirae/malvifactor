@@ -10,6 +10,11 @@ class RecipeSummaryModel {
     this.description,
     required this.totalWeightG,
     required this.servingsCount,
+    this.servingWeightG,
+    this.kcalPerServing,
+    this.proteinPerServing,
+    this.fatPerServing,
+    this.carbsPerServing,
     required this.kcalPer100g,
     required this.proteinPer100g,
     required this.fatPer100g,
@@ -22,23 +27,84 @@ class RecipeSummaryModel {
   final String? description;
   final double totalWeightG;
   final double servingsCount;
+  final double? servingWeightG;
+  final double? kcalPerServing;
+  final double? proteinPerServing;
+  final double? fatPerServing;
+  final double? carbsPerServing;
   final double kcalPer100g;
   final double proteinPer100g;
   final double fatPer100g;
   final double carbsPer100g;
   final bool isShared;
 
+  bool get hasServings =>
+      servingsCount > 0 && resolvedServingWeightG != null && resolvedServingWeightG! > 0;
+
+  double? get resolvedServingWeightG {
+    if (servingWeightG != null && servingWeightG! > 0) return servingWeightG;
+    if (servingsCount > 0 && totalWeightG > 0) {
+      return double.parse((totalWeightG / servingsCount).toStringAsFixed(1));
+    }
+    return null;
+  }
+
+  double get perServingKcal {
+    if (kcalPerServing != null) return kcalPerServing!;
+    final sw = resolvedServingWeightG;
+    if (sw == null) return kcalPer100g;
+    return kcalPer100g * sw / 100.0;
+  }
+
+  double get perServingProteinG {
+    if (proteinPerServing != null) return proteinPerServing!;
+    final sw = resolvedServingWeightG;
+    if (sw == null) return proteinPer100g;
+    return proteinPer100g * sw / 100.0;
+  }
+
+  double get perServingFatG {
+    if (fatPerServing != null) return fatPerServing!;
+    final sw = resolvedServingWeightG;
+    if (sw == null) return fatPer100g;
+    return fatPer100g * sw / 100.0;
+  }
+
+  double get perServingCarbsG {
+    if (carbsPerServing != null) return carbsPerServing!;
+    final sw = resolvedServingWeightG;
+    if (sw == null) return carbsPer100g;
+    return carbsPer100g * sw / 100.0;
+  }
+
   factory RecipeSummaryModel.fromJson(Map<String, dynamic> json) {
+    final totalW = (json['total_weight_g'] as num).toDouble();
+    final servings = ((json['servings'] ?? json['servings_count']) as num).toDouble();
+    final kcal100 = (json['kcal_per_100g'] as num).toDouble();
+    final p100 = (json['protein_per_100g'] as num).toDouble();
+    final f100 = (json['fat_per_100g'] as num).toDouble();
+    final c100 = (json['carbs_per_100g'] as num).toDouble();
+    final sw = (json['serving_weight_g'] as num?)?.toDouble() ??
+        (servings > 0 ? double.parse((totalW / servings).toStringAsFixed(1)) : null);
     return RecipeSummaryModel(
       id: json['id'] as String,
       name: json['name'] as String,
       description: json['description'] as String?,
-      totalWeightG: (json['total_weight_g'] as num).toDouble(),
-      servingsCount: (json['servings_count'] as num).toDouble(),
-      kcalPer100g: (json['kcal_per_100g'] as num).toDouble(),
-      proteinPer100g: (json['protein_per_100g'] as num).toDouble(),
-      fatPer100g: (json['fat_per_100g'] as num).toDouble(),
-      carbsPer100g: (json['carbs_per_100g'] as num).toDouble(),
+      totalWeightG: totalW,
+      servingsCount: servings,
+      servingWeightG: sw,
+      kcalPerServing: (json['kcal_per_serving'] as num?)?.toDouble() ??
+          (sw != null ? kcal100 * sw / 100.0 : null),
+      proteinPerServing: (json['protein_per_serving'] as num?)?.toDouble() ??
+          (sw != null ? p100 * sw / 100.0 : null),
+      fatPerServing: (json['fat_per_serving'] as num?)?.toDouble() ??
+          (sw != null ? f100 * sw / 100.0 : null),
+      carbsPerServing: (json['carbs_per_serving'] as num?)?.toDouble() ??
+          (sw != null ? c100 * sw / 100.0 : null),
+      kcalPer100g: kcal100,
+      proteinPer100g: p100,
+      fatPer100g: f100,
+      carbsPer100g: c100,
       isShared: json['is_shared'] as bool,
     );
   }
@@ -89,6 +155,11 @@ class RecipeDetailModel extends RecipeSummaryModel {
     super.description,
     required super.totalWeightG,
     required super.servingsCount,
+    super.servingWeightG,
+    super.kcalPerServing,
+    super.proteinPerServing,
+    super.fatPerServing,
+    super.carbsPerServing,
     required super.kcalPer100g,
     required super.proteinPer100g,
     required super.fatPer100g,
@@ -100,18 +171,24 @@ class RecipeDetailModel extends RecipeSummaryModel {
   final List<RecipeIngredientDetailModel> ingredients;
 
   factory RecipeDetailModel.fromJson(Map<String, dynamic> json) {
+    final summary = RecipeSummaryModel.fromJson(json);
     final rawIngredients = json['ingredients'] as List<dynamic>? ?? const [];
     return RecipeDetailModel(
-      id: json['id'] as String,
-      name: json['name'] as String,
-      description: json['description'] as String?,
-      totalWeightG: (json['total_weight_g'] as num).toDouble(),
-      servingsCount: (json['servings_count'] as num).toDouble(),
-      kcalPer100g: (json['kcal_per_100g'] as num).toDouble(),
-      proteinPer100g: (json['protein_per_100g'] as num).toDouble(),
-      fatPer100g: (json['fat_per_100g'] as num).toDouble(),
-      carbsPer100g: (json['carbs_per_100g'] as num).toDouble(),
-      isShared: json['is_shared'] as bool,
+      id: summary.id,
+      name: summary.name,
+      description: summary.description,
+      totalWeightG: summary.totalWeightG,
+      servingsCount: summary.servingsCount,
+      servingWeightG: summary.servingWeightG,
+      kcalPerServing: summary.kcalPerServing,
+      proteinPerServing: summary.proteinPerServing,
+      fatPerServing: summary.fatPerServing,
+      carbsPerServing: summary.carbsPerServing,
+      kcalPer100g: summary.kcalPer100g,
+      proteinPer100g: summary.proteinPer100g,
+      fatPer100g: summary.fatPer100g,
+      carbsPer100g: summary.carbsPer100g,
+      isShared: summary.isShared,
       ingredients: rawIngredients
           .map(
             (e) =>

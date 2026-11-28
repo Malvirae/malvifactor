@@ -42,6 +42,9 @@ class FoodLogItemModel {
     required this.proteinG,
     required this.fatG,
     required this.carbsG,
+    this.recipeServings,
+    this.recipeTotalWeightG,
+    this.recipeServingWeightG,
   });
 
   final String id;
@@ -57,6 +60,9 @@ class FoodLogItemModel {
   final double proteinG;
   final double fatG;
   final double carbsG;
+  final double? recipeServings;
+  final double? recipeTotalWeightG;
+  final double? recipeServingWeightG;
 
   factory FoodLogItemModel.fromJson(Map<String, dynamic> json) {
     return FoodLogItemModel(
@@ -73,6 +79,10 @@ class FoodLogItemModel {
       proteinG: (json['protein_g'] as num).toDouble(),
       fatG: (json['fat_g'] as num).toDouble(),
       carbsG: (json['carbs_g'] as num).toDouble(),
+      recipeServings: (json['recipe_servings'] as num?)?.toDouble(),
+      recipeTotalWeightG: (json['recipe_total_weight_g'] as num?)?.toDouble(),
+      recipeServingWeightG:
+          (json['recipe_serving_weight_g'] as num?)?.toDouble(),
     );
   }
 }

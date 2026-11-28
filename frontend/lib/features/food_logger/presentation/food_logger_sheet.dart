@@ -14,6 +14,7 @@ import 'package:malvifactor/features/food_logger/presentation/barcode_review_she
 import 'package:malvifactor/features/food_logger/presentation/barcode_scanner_screen.dart';
 import 'package:malvifactor/features/food_logger/presentation/quantity_bottom_sheet.dart';
 import 'package:malvifactor/features/food_logger/presentation/widgets/food_search_widgets.dart';
+import 'package:malvifactor/features/food_logger/presentation/widgets/recipe_portion_input.dart';
 import 'package:malvifactor/features/food_logger/providers/food_basket_provider.dart';
 import 'package:malvifactor/features/journal/presentation/journal_screen.dart';
 import 'package:malvifactor/features/profile/providers/profile_provider.dart';
@@ -443,64 +444,90 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
 
   Future<void> _editBasketItemQuantity(BasketItem item) async {
     if (item.isQuickAdd) return;
-    final ctrl = TextEditingController(
-      text: item.quantityG.toStringAsFixed(item.quantityG % 1 == 0 ? 0 : 1),
-    );
-    final focusNode = FocusNode();
-    focusNode.addListener(() {
-      if (focusNode.hasFocus && ctrl.text.isNotEmpty) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (focusNode.hasFocus && ctrl.text.isNotEmpty) {
-            ctrl.selection = TextSelection(
-              baseOffset: 0,
-              extentOffset: ctrl.text.length,
-            );
-          }
-        });
-      }
-    });
+    double draftQtyG = item.quantityG;
 
-    final newQty = await showDialog<double>(
+    final newQty = await showModalBottomSheet<double>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        title: Text(
-          item.name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        content: TextField(
-          controller: ctrl,
-          focusNode: focusNode,
-          autofocus: true,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          style: AppTheme.numericStyle(fontSize: 18),
-          decoration: const InputDecoration(
-            labelText: 'Quantité (g)',
-            suffixText: 'g',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final parsed =
-                  double.tryParse(ctrl.text.trim().replaceAll(',', '.'));
-              if (parsed != null && parsed > 0) {
-                Navigator.of(ctx).pop(parsed);
-              }
-            },
-            child: const Text('Valider'),
-          ),
-        ],
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          final factor = draftQtyG / 100.0;
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              14,
+              20,
+              MediaQuery.of(ctx).viewInsets.bottom + 20,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.border,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        item.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    if (item.itemType == 'recipe') ...[
+                      const SizedBox(width: 8),
+                      const FoodSourceBadge(source: 'recipe'),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ColoredMacroInlineRow(
+                  prefix: 'Portion : ',
+                  kcal: item.kcalPer100g * factor,
+                  proteinG: item.proteinPer100g * factor,
+                  fatG: item.fatPer100g * factor,
+                  carbsG: item.carbsPer100g * factor,
+                  fontSize: 13.5,
+                ),
+                const SizedBox(height: 14),
+                PortionAwareQuantitySection(
+                  initialQuantityG: item.quantityG,
+                  servingWeightG: item.recipeServingWeightG,
+                  totalWeightG: item.recipeTotalWeightG,
+                  servingsCount: item.recipeServings,
+                  autofocus: true,
+                  onQuantityChanged: (g) => setModalState(() => draftQtyG = g),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: draftQtyG > 0
+                      ? () => Navigator.of(ctx).pop(draftQtyG)
+                      : null,
+                  child: const Text('Valider'),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
-
-    focusNode.dispose();
-    ctrl.dispose();
 
     if (newQty != null && newQty > 0) {
       ref
@@ -1039,6 +1066,11 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
                             stores: food.stores,
                             source: food.source,
                             quantityG: qty,
+                            customQuantityText: isRecipe &&
+                                    food.servingWeightG != null
+                                ? formatRecipeUnitSubtitle(
+                                    qty, food.servingWeightG)
+                                : null,
                             kcal: food.kcalPer100g * factor,
                             proteinG: food.proteinPer100g * factor,
                             fatG: food.fatPer100g * factor,
@@ -1184,6 +1216,10 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
           stores: item.stores,
           source: item.source,
           quantityG: item.lastQuantityG,
+          customQuantityText: item.isRecipe && item.servingWeightG != null
+              ? formatRecipeUnitSubtitle(
+                  item.lastQuantityG, item.servingWeightG)
+              : null,
           kcal: item.previewKcal,
           proteinG: item.previewProteinG,
           fatG: item.previewFatG,
@@ -1265,9 +1301,7 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
                 separatorBuilder: (_, __) => const Divider(),
                 itemBuilder: (context, index) {
                   final recipe = recipes[index];
-                  final defaultQty = recipe.servingsCount > 0
-                      ? (recipe.totalWeightG / recipe.servingsCount)
-                      : 100.0;
+                  final defaultQty = recipe.resolvedServingWeightG ?? 100.0;
                   final factor = defaultQty / 100.0;
                   final count = basket.countFor(recipeId: recipe.id);
                   return FoodSearchResultRow(
@@ -1276,6 +1310,10 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
                     stores: null,
                     source: 'recipe',
                     quantityG: defaultQty,
+                    customQuantityText: recipe.hasServings
+                        ? formatRecipeUnitSubtitle(
+                            defaultQty, recipe.resolvedServingWeightG)
+                        : null,
                     kcal: recipe.kcalPer100g * factor,
                     proteinG: recipe.proteinPer100g * factor,
                     fatG: recipe.fatPer100g * factor,
@@ -1590,9 +1628,13 @@ class _BasketDrawer extends StatelessWidget {
                   final item = basket.items[idx];
                   final qtyStr = item.isQuickAdd
                       ? 'Ajout libre'
-                      : (item.quantityG % 1 == 0
-                          ? '${item.quantityG.round()} g'
-                          : '${item.quantityG.toStringAsFixed(1)} g');
+                      : (item.itemType == 'recipe' &&
+                              item.recipeServingWeightG != null
+                          ? formatRecipeUnitSubtitle(
+                              item.quantityG, item.recipeServingWeightG)
+                          : (item.quantityG % 1 == 0
+                              ? '${item.quantityG.round()} g'
+                              : '${item.quantityG.toStringAsFixed(1)} g'));
                   return Dismissible(
                     key: ValueKey(item.localId),
                     direction: DismissDirection.endToStart,

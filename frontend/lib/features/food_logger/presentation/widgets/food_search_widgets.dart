@@ -156,6 +156,7 @@ class FoodSearchResultRow extends StatelessWidget {
     this.basketCount = 0,
     this.trailingExtra,
     this.quantityPrefix = '• ',
+    this.customQuantityText,
   });
 
   final String name;
@@ -172,6 +173,7 @@ class FoodSearchResultRow extends StatelessWidget {
   final int basketCount;
   final Widget? trailingExtra;
   final String quantityPrefix;
+  final String? customQuantityText;
 
   @override
   Widget build(BuildContext context) {
@@ -193,9 +195,10 @@ class FoodSearchResultRow extends StatelessWidget {
         iconColor = AppColors.weight;
     }
 
-    final qtyLabel = quantityG % 1 == 0
-        ? '${quantityG.round()} g'
-        : '${quantityG.toStringAsFixed(1)} g';
+    final qtyLabel = customQuantityText ??
+        (quantityG % 1 == 0
+            ? '${quantityG.round()} g'
+            : '${quantityG.toStringAsFixed(1)} g');
     final metaParts = <String>[
       name,
       if (brand != null && brand!.isNotEmpty) brand!,

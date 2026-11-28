@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 class RecipeIngredientInput(BaseModel):
@@ -67,6 +67,50 @@ class RecipeSummary(BaseModel):
     is_shared: bool
     created_at: datetime
     updated_at: datetime
+
+    @computed_field
+    @property
+    def servings(self) -> float:
+        return self.servings_count
+
+    @computed_field
+    @property
+    def serving_weight_g(self) -> float | None:
+        if self.servings_count <= 0:
+            return None
+        return round(self.total_weight_g / self.servings_count, 1)
+
+    @computed_field
+    @property
+    def kcal_per_serving(self) -> float | None:
+        sw = self.serving_weight_g
+        if sw is None:
+            return None
+        return round(self.kcal_per_100g * sw / 100.0, 1)
+
+    @computed_field
+    @property
+    def protein_per_serving(self) -> float | None:
+        sw = self.serving_weight_g
+        if sw is None:
+            return None
+        return round(self.protein_per_100g * sw / 100.0, 1)
+
+    @computed_field
+    @property
+    def fat_per_serving(self) -> float | None:
+        sw = self.serving_weight_g
+        if sw is None:
+            return None
+        return round(self.fat_per_100g * sw / 100.0, 1)
+
+    @computed_field
+    @property
+    def carbs_per_serving(self) -> float | None:
+        sw = self.serving_weight_g
+        if sw is None:
+            return None
+        return round(self.carbs_per_100g * sw / 100.0, 1)
 
 
 class RecipeResponse(RecipeSummary):

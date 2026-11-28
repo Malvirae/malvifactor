@@ -9,6 +9,7 @@ import 'package:malvifactor/features/food_logger/data/food_repository.dart';
 import 'package:malvifactor/features/food_logger/presentation/barcode_review_sheet.dart';
 import 'package:malvifactor/features/food_logger/presentation/barcode_scanner_screen.dart';
 import 'package:malvifactor/features/food_logger/presentation/widgets/food_search_widgets.dart';
+import 'package:malvifactor/features/food_logger/presentation/widgets/recipe_portion_input.dart';
 import 'package:malvifactor/features/food_logger/providers/food_basket_provider.dart';
 import 'package:malvifactor/features/recipes/data/recipe_repository.dart';
 
@@ -203,6 +204,15 @@ class _RecipeEditorScreenState extends ConsumerState<RecipeEditorScreen> {
       totalC += ing.food.carbsPer100g * factor;
     }
     final scale100 = effectiveWeight > 0 ? 100.0 / effectiveWeight : 0.0;
+    final parsedServings = double.tryParse(
+      _servingsController.text.trim().replaceAll(',', '.'),
+    );
+    final hasValidServings = parsedServings != null && parsedServings > 0;
+    final servingWeightG =
+        (hasValidServings && effectiveWeight > 0)
+            ? effectiveWeight / parsedServings
+            : 0.0;
+    final scaleServing = hasValidServings ? 1.0 / parsedServings : 0.0;
 
     return Scaffold(
       appBar: AppBar(
@@ -232,7 +242,7 @@ class _RecipeEditorScreenState extends ConsumerState<RecipeEditorScreen> {
                 children: [
                   Container(
                     decoration: AppTheme.gradientCardDecoration(
-                      accentColor: AppColors.carbs,
+                      accentColor: const Color(0xFF22D3EE),
                     ),
                     padding: const EdgeInsets.all(16),
                     child: Column(
@@ -241,16 +251,88 @@ class _RecipeEditorScreenState extends ConsumerState<RecipeEditorScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
+                            Flexible(
+                              child: Text(
+                                hasValidServings && servingWeightG > 0
+                                    ? 'Par portion (${formatGramsText(servingWeightG)})'
+                                    : 'Par portion',
+                                style: const TextStyle(
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              hasValidServings
+                                  ? '${formatFrNumber(parsedServings, decimals: 1)} ${formatPortionsWord(parsedServings)}'
+                                  : '— portions',
+                              style: AppTheme.numericStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFF22D3EE),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            _StatPill(
+                              label: 'kcal / part',
+                              value: hasValidServings
+                                  ? '${(totalKcal * scaleServing).round()}'
+                                  : '—',
+                              color: AppColors.calories,
+                            ),
+                            _StatPill(
+                              label: 'P (g)',
+                              value: hasValidServings
+                                  ? formatFrNumber(
+                                      totalP * scaleServing,
+                                      decimals: 1,
+                                    )
+                                  : '—',
+                              color: AppColors.protein,
+                            ),
+                            _StatPill(
+                              label: 'L (g)',
+                              value: hasValidServings
+                                  ? formatFrNumber(
+                                      totalF * scaleServing,
+                                      decimals: 1,
+                                    )
+                                  : '—',
+                              color: AppColors.fat,
+                            ),
+                            _StatPill(
+                              label: 'G (g)',
+                              value: hasValidServings
+                                  ? formatFrNumber(
+                                      totalC * scaleServing,
+                                      decimals: 1,
+                                    )
+                                  : '—',
+                              color: AppColors.carbs,
+                            ),
+                          ],
+                        ),
+                        const Divider(height: 22),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
                             const Text(
-                              'Valeurs calculées (aux 100g)',
+                              'Aux 100 g',
                               style: TextStyle(
-                                fontSize: 13,
+                                fontSize: 12,
                                 fontWeight: FontWeight.w700,
                                 color: AppColors.textSecondary,
                               ),
                             ),
                             Text(
-                              'Total : ${effectiveWeight.round()} g',
+                              'Total : ${formatGramsText(effectiveWeight)}',
                               style: AppTheme.numericStyle(
                                 fontSize: 12,
                                 color: AppColors.textMuted,
@@ -258,7 +340,7 @@ class _RecipeEditorScreenState extends ConsumerState<RecipeEditorScreen> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 8),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
                           children: [
@@ -266,21 +348,34 @@ class _RecipeEditorScreenState extends ConsumerState<RecipeEditorScreen> {
                               label: 'kcal/100g',
                               value: '${(totalKcal * scale100).round()}',
                               color: AppColors.calories,
+                              compact: true,
                             ),
                             _StatPill(
                               label: 'P/100g',
-                              value: (totalP * scale100).toStringAsFixed(1),
+                              value: formatFrNumber(
+                                totalP * scale100,
+                                decimals: 1,
+                              ),
                               color: AppColors.protein,
+                              compact: true,
                             ),
                             _StatPill(
                               label: 'L/100g',
-                              value: (totalF * scale100).toStringAsFixed(1),
+                              value: formatFrNumber(
+                                totalF * scale100,
+                                decimals: 1,
+                              ),
                               color: AppColors.fat,
+                              compact: true,
                             ),
                             _StatPill(
                               label: 'G/100g',
-                              value: (totalC * scale100).toStringAsFixed(1),
+                              value: formatFrNumber(
+                                totalC * scale100,
+                                decimals: 1,
+                              ),
                               color: AppColors.carbs,
+                              compact: true,
                             ),
                           ],
                         ),
@@ -321,6 +416,7 @@ class _RecipeEditorScreenState extends ConsumerState<RecipeEditorScreen> {
                                   decoration: const InputDecoration(
                                     labelText: 'Portions',
                                   ),
+                                  onChanged: (_) => setState(() {}),
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -453,11 +549,13 @@ class _StatPill extends StatelessWidget {
     required this.label,
     required this.value,
     required this.color,
+    this.compact = false,
   });
 
   final String label;
   final String value;
   final Color color;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -466,14 +564,17 @@ class _StatPill extends StatelessWidget {
         Text(
           value,
           style: AppTheme.numericStyle(
-            fontSize: 17,
+            fontSize: compact ? 14 : 18,
             fontWeight: FontWeight.w800,
             color: color,
           ),
         ),
         Text(
           label,
-          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+          style: TextStyle(
+            fontSize: compact ? 10.5 : 11,
+            color: AppColors.textSecondary,
+          ),
         ),
       ],
     );

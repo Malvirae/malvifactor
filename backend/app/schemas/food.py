@@ -69,6 +69,13 @@ class FoodResponse(FoodBase):
     created_by_user_id: UUID | None
     created_at: datetime
     last_quantity_g: float | None = None
+    servings: float | None = None
+    total_weight_g: float | None = None
+    serving_weight_g: float | None = None
+    kcal_per_serving: float | None = None
+    protein_per_serving: float | None = None
+    fat_per_serving: float | None = None
+    carbs_per_serving: float | None = None
 
 
 class FoodSuggestionItem(BaseModel):
@@ -95,6 +102,13 @@ class FoodSuggestionItem(BaseModel):
     preview_carbs_g: float
     last_logged_at: datetime
     times_logged_at_hour: int = 0
+    servings: float | None = None
+    total_weight_g: float | None = None
+    serving_weight_g: float | None = None
+    kcal_per_serving: float | None = None
+    protein_per_serving: float | None = None
+    fat_per_serving: float | None = None
+    carbs_per_serving: float | None = None
 
 
 class FoodSuggestionsResponse(BaseModel):

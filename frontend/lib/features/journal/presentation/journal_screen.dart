@@ -9,6 +9,8 @@ import 'package:malvifactor/features/dashboard/data/dashboard_repository.dart';
 import 'package:malvifactor/features/dashboard/providers/dashboard_provider.dart';
 import 'package:malvifactor/features/food_logger/data/food_repository.dart';
 import 'package:malvifactor/features/food_logger/presentation/food_logger_sheet.dart';
+import 'package:malvifactor/features/food_logger/presentation/widgets/food_search_widgets.dart';
+import 'package:malvifactor/features/food_logger/presentation/widgets/recipe_portion_input.dart';
 import 'package:malvifactor/features/journal/data/journal_repository.dart';
 import 'package:malvifactor/shared/widgets/week_date_strip.dart';
 
@@ -354,10 +356,9 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
   ) async {
     final isFreeEntry = item.foodId == null && item.recipeId == null;
     final canCustomizeFood = item.foodId != null;
+    final isRecipe = item.recipeId != null;
 
-    final qtyController = TextEditingController(
-      text: item.quantityG.toStringAsFixed(item.quantityG % 1 == 0 ? 0 : 1),
-    );
+    var currentQtyG = item.quantityG;
     final nameCtrl = TextEditingController(text: item.displayName);
 
     final scale100 =
@@ -397,10 +398,6 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setModalState) {
-            final currentQty = double.tryParse(
-                  qtyController.text.replaceAll(',', '.'),
-                ) ??
-                item.quantityG;
             final curKcalBase =
                 double.tryParse(kcalCtrl.text.replaceAll(',', '.')) ?? initKcal;
             final curPBase =
@@ -410,7 +407,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
             final curCBase =
                 double.tryParse(cCtrl.text.replaceAll(',', '.')) ?? initC;
 
-            final previewFactor = isFreeEntry ? 1.0 : (currentQty / 100.0);
+            final previewFactor = isFreeEntry ? 1.0 : (currentQtyG / 100.0);
 
             return Padding(
               padding: EdgeInsets.fromLTRB(
@@ -424,61 +421,63 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(
-                      item.displayName,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Portion : ${(curKcalBase * previewFactor).round()} kcal · P ${(curPBase * previewFactor).toStringAsFixed(1)}g · L ${(curFBase * previewFactor).toStringAsFixed(1)}g · G ${(curCBase * previewFactor).toStringAsFixed(1)}g',
-                      style: AppTheme.numericStyle(
-                        fontSize: 13,
-                        color: AppColors.calories,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
                     Row(
                       children: [
                         Expanded(
-                          child: TextField(
-                            controller: qtyController,
-                            keyboardType: const TextInputType.numberWithOptions(
-                                decimal: true),
-                            decoration: const InputDecoration(
-                              labelText: 'Quantité (g)',
-                            ),
-                            onChanged: (_) => setModalState(() {}),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: InkWell(
-                            onTap: () async {
-                              final picked = await showTimePicker(
-                                context: ctx,
-                                initialTime: selectedTime,
-                              );
-                              if (picked != null) {
-                                setModalState(() => selectedTime = picked);
-                              }
-                            },
-                            borderRadius: BorderRadius.circular(12),
-                            child: InputDecorator(
-                              decoration: const InputDecoration(
-                                labelText: 'Heure',
-                                prefixIcon: Icon(LucideIcons.clock, size: 16),
-                              ),
-                              child: Text(
-                                '${selectedTime.hour.toString().padLeft(2, '0')}:${selectedTime.minute.toString().padLeft(2, '0')}',
-                                style: AppTheme.numericStyle(fontSize: 15),
-                              ),
+                          child: Text(
+                            item.displayName,
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
                         ),
+                        if (isRecipe) ...[
+                          const SizedBox(width: 8),
+                          const FoodSourceBadge(source: 'recipe'),
+                        ],
                       ],
+                    ),
+                    const SizedBox(height: 8),
+                    ColoredMacroInlineRow(
+                      prefix: 'Portion : ',
+                      kcal: curKcalBase * previewFactor,
+                      proteinG: curPBase * previewFactor,
+                      fatG: curFBase * previewFactor,
+                      carbsG: curCBase * previewFactor,
+                      fontSize: 13.5,
+                    ),
+                    const SizedBox(height: 14),
+                    PortionAwareQuantitySection(
+                      initialQuantityG: item.quantityG,
+                      servingWeightG: item.recipeServingWeightG,
+                      totalWeightG: item.recipeTotalWeightG,
+                      servingsCount: item.recipeServings,
+                      autofocus: false,
+                      onQuantityChanged: (g) =>
+                          setModalState(() => currentQtyG = g),
+                      trailingBesideInput: InkWell(
+                        onTap: () async {
+                          final picked = await showTimePicker(
+                            context: ctx,
+                            initialTime: selectedTime,
+                          );
+                          if (picked != null) {
+                            setModalState(() => selectedTime = picked);
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Heure',
+                            prefixIcon: Icon(LucideIcons.clock, size: 16),
+                          ),
+                          child: Text(
+                            '${selectedTime.hour.toString().padLeft(2, '0')}:${selectedTime.minute.toString().padLeft(2, '0')}',
+                            style: AppTheme.numericStyle(fontSize: 15),
+                          ),
+                        ),
+                      ),
                     ),
                     if (canCustomizeFood || isFreeEntry) ...[
                       const SizedBox(height: 16),
@@ -556,13 +555,11 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
                     ],
                     const SizedBox(height: 18),
                     ElevatedButton(
-                      onPressed: isSaving
+                      onPressed: isSaving || currentQtyG <= 0
                           ? null
                           : () async {
-                              final newQty = double.tryParse(
-                                qtyController.text.replaceAll(',', '.'),
-                              );
-                              if (newQty == null || newQty <= 0) return;
+                              final newQty = currentQtyG;
+                              if (newQty <= 0) return;
                               setModalState(() => isSaving = true);
 
                               final journalRepo =
@@ -1303,8 +1300,10 @@ class _HourlyTimelineList extends StatelessWidget {
                                                   ),
                                                 ),
                                                 TextSpan(
-                                                  text:
-                                                      ' · ${item.quantityG.round()} g',
+                                                  text: item.recipeServingWeightG !=
+                                                          null
+                                                      ? ' · ${formatRecipeUnitSubtitle(item.quantityG, item.recipeServingWeightG)}'
+                                                      : ' · ${item.quantityG.round()} g',
                                                   style: const TextStyle(
                                                     color: AppColors.textMuted,
                                                   ),
@@ -1348,7 +1347,10 @@ class _HourlyTimelineList extends StatelessWidget {
                                               ),
                                               const SizedBox(width: 6),
                                               Text(
-                                                '· ${item.quantityG.round()}g',
+                                                item.recipeServingWeightG !=
+                                                        null
+                                                    ? '· ${formatRecipeUnitSubtitle(item.quantityG, item.recipeServingWeightG)}'
+                                                    : '· ${item.quantityG.round()}g',
                                                 style: AppTheme.numericStyle(
                                                   fontSize: 11,
                                                   color: AppColors.textMuted,

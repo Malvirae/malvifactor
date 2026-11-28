@@ -49,6 +49,32 @@ def _format_serving_label(quantity_g: float, base_size_g: float, base_label: str
     return f"{qty_str} g"
 
 
+def _recipe_portion_fields(recipe: Recipe) -> dict[str, float | None]:
+    servings = float(recipe.servings_count) if recipe.servings_count else 0.0
+    total_weight = float(recipe.total_weight_g)
+    if servings <= 0 or total_weight <= 0:
+        return {
+            "servings": servings if servings > 0 else None,
+            "total_weight_g": total_weight if total_weight > 0 else None,
+            "serving_weight_g": None,
+            "kcal_per_serving": None,
+            "protein_per_serving": None,
+            "fat_per_serving": None,
+            "carbs_per_serving": None,
+        }
+    serving_weight = round(total_weight / servings, 1)
+    factor = serving_weight / 100.0
+    return {
+        "servings": servings,
+        "total_weight_g": total_weight,
+        "serving_weight_g": serving_weight,
+        "kcal_per_serving": round(recipe.kcal_per_100g * factor, 1),
+        "protein_per_serving": round(recipe.protein_per_100g * factor, 1),
+        "fat_per_serving": round(recipe.fat_per_100g * factor, 1),
+        "carbs_per_serving": round(recipe.carbs_per_100g * factor, 1),
+    }
+
+
 async def _attach_last_quantities(
     db: AsyncSession,
     user_id: UUID,
@@ -238,27 +264,36 @@ async def get_food_suggestions(
         recipe = recipes_map.get(uid)
         if recipe is None:
             return None
+        portion_fields = _recipe_portion_fields(recipe)
+        serving_weight = portion_fields["serving_weight_g"] or 100.0
         return FoodSuggestionItem(
             id=recipe.id,
             item_type="recipe",
             source="recipe",
             name=recipe.name,
             brand=None,
-            serving_size_g=round(recipe.total_weight_g / max(recipe.servings_count, 1.0), 1),
-            serving_label="1 portion",
+            serving_size_g=serving_weight,
+            serving_label="1 portion" if portion_fields["serving_weight_g"] else None,
             kcal_per_100g=recipe.kcal_per_100g,
             protein_per_100g=recipe.protein_per_100g,
             fat_per_100g=recipe.fat_per_100g,
             carbs_per_100g=recipe.carbs_per_100g,
             fiber_per_100g=0.0,
             last_quantity_g=round(qty, 1),
-            last_serving_label=_format_serving_label(qty, 100.0, None),
+            last_serving_label=_format_serving_label(
+                qty,
+                serving_weight,
+                f"1 portion ({serving_weight:.1f} g)"
+                if portion_fields["serving_weight_g"]
+                else None,
+            ),
             preview_kcal=round(recipe.kcal_per_100g * factor, 1),
             preview_protein_g=round(recipe.protein_per_100g * factor, 1),
             preview_fat_g=round(recipe.fat_per_100g * factor, 1),
             preview_carbs_g=round(recipe.carbs_per_100g * factor, 1),
             last_logged_at=last_dt,
             times_logged_at_hour=window_counts.get(key, 0) if for_window else 0,
+            **portion_fields,
         )
 
     time_picks: list[FoodSuggestionItem] = []
@@ -529,9 +564,8 @@ async def search_foods(
         if usage > 0:
             score += min(30.0, usage * 5.0)
 
-        default_serving = round(
-            recipe.total_weight_g / max(recipe.servings_count, 1.0), 1
-        )
+        portion_fields = _recipe_portion_fields(recipe)
+        default_serving = portion_fields["serving_weight_g"] or 100.0
         resp = FoodResponse(
             id=recipe.id,
             source="recipe",
@@ -540,7 +574,7 @@ async def search_foods(
             brand=None,
             stores=None,
             serving_size_g=default_serving,
-            serving_label="1 portion",
+            serving_label="1 portion" if portion_fields["serving_weight_g"] else None,
             kcal_per_100g=recipe.kcal_per_100g,
             protein_per_100g=recipe.protein_per_100g,
             fat_per_100g=recipe.fat_per_100g,
@@ -549,6 +583,7 @@ async def search_foods(
             created_by_user_id=recipe.created_by_user_id,
             created_at=recipe.created_at,
             last_quantity_g=recipe_last_qty.get(recipe.id),
+            **portion_fields,
         )
         scored_responses.append((score, norm_name, resp))
 

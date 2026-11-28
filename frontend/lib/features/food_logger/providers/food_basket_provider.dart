@@ -34,6 +34,9 @@ class BasketItem {
     required this.proteinG,
     required this.fatG,
     required this.carbsG,
+    this.recipeServings,
+    this.recipeTotalWeightG,
+    this.recipeServingWeightG,
   });
 
   final String localId;
@@ -52,6 +55,9 @@ class BasketItem {
   final double proteinG;
   final double fatG;
   final double carbsG;
+  final double? recipeServings;
+  final double? recipeTotalWeightG;
+  final double? recipeServingWeightG;
 
   bool get isQuickAdd => itemType == 'quick';
 
@@ -74,6 +80,9 @@ class BasketItem {
         proteinG: proteinG,
         fatG: fatG,
         carbsG: carbsG,
+        recipeServings: recipeServings,
+        recipeTotalWeightG: recipeTotalWeightG,
+        recipeServingWeightG: recipeServingWeightG,
       );
     }
     final factor = newQtyG / 100.0;
@@ -94,6 +103,9 @@ class BasketItem {
       proteinG: proteinPer100g * factor,
       fatG: fatPer100g * factor,
       carbsG: carbsPer100g * factor,
+      recipeServings: recipeServings,
+      recipeTotalWeightG: recipeTotalWeightG,
+      recipeServingWeightG: recipeServingWeightG,
     );
   }
 
@@ -221,12 +233,16 @@ class FoodBasketNotifier extends StateNotifier<FoodBasketState> {
         proteinG: food.proteinPer100g * factor,
         fatG: food.fatPer100g * factor,
         carbsG: food.carbsPer100g * factor,
+        recipeServings: isRecipe ? food.servings : null,
+        recipeTotalWeightG: isRecipe ? food.totalWeightG : null,
+        recipeServingWeightG: isRecipe ? food.servingWeightG : null,
       ),
     );
   }
 
   void addRecipe(RecipeSummaryModel recipe, {double? quantityG}) {
-    final qty = (quantityG != null && quantityG > 0) ? quantityG : 100.0;
+    final defaultPortionG = recipe.resolvedServingWeightG ?? 100.0;
+    final qty = (quantityG != null && quantityG > 0) ? quantityG : defaultPortionG;
     final factor = qty / 100.0;
     addItem(
       BasketItem(
@@ -243,6 +259,9 @@ class FoodBasketNotifier extends StateNotifier<FoodBasketState> {
         proteinG: recipe.proteinPer100g * factor,
         fatG: recipe.fatPer100g * factor,
         carbsG: recipe.carbsPer100g * factor,
+        recipeServings: recipe.servingsCount,
+        recipeTotalWeightG: recipe.totalWeightG,
+        recipeServingWeightG: recipe.resolvedServingWeightG,
       ),
     );
   }
@@ -269,6 +288,10 @@ class FoodBasketNotifier extends StateNotifier<FoodBasketState> {
         proteinG: suggestion.proteinPer100g * factor,
         fatG: suggestion.fatPer100g * factor,
         carbsG: suggestion.carbsPer100g * factor,
+        recipeServings: suggestion.isRecipe ? suggestion.servings : null,
+        recipeTotalWeightG: suggestion.isRecipe ? suggestion.totalWeightG : null,
+        recipeServingWeightG:
+            suggestion.isRecipe ? suggestion.servingWeightG : null,
       ),
     );
   }
