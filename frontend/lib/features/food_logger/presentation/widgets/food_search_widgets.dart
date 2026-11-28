@@ -103,6 +103,11 @@ class FoodSourceBadge extends StatelessWidget {
         fgColor = const Color(0xFF22D3EE);
         label = 'Recette';
         icon = null;
+      case 'quick_add':
+        bgColor = AppColors.calories.withValues(alpha: 0.15);
+        fgColor = AppColors.calories;
+        label = 'Libre';
+        icon = LucideIcons.zap;
       default:
         bgColor = const Color(0xFFA78BFA).withValues(alpha: 0.15);
         fgColor = const Color(0xFFA78BFA);
@@ -190,6 +195,9 @@ class FoodSearchResultRow extends StatelessWidget {
       case 'recipe':
         icon = LucideIcons.chefHat;
         iconColor = const Color(0xFF22D3EE);
+      case 'quick_add':
+        icon = LucideIcons.zap;
+        iconColor = AppColors.calories;
       default:
         icon = LucideIcons.bookmark;
         iconColor = AppColors.weight;

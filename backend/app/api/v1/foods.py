@@ -128,8 +128,12 @@ async def get_food_suggestions(
         select(FoodLog)
         .where(
             FoodLog.user_id == current_user.id,
-            FoodLog.logged_date <= today,
-            or_(FoodLog.food_id.is_not(None), FoodLog.recipe_id.is_not(None)),
+            FoodLog.logged_date <= today + timedelta(days=1),
+            or_(
+                FoodLog.food_id.is_not(None),
+                FoodLog.recipe_id.is_not(None),
+                FoodLog.custom_name.is_not(None),
+            ),
         )
         .order_by(
             FoodLog.logged_date.desc(),
@@ -147,20 +151,28 @@ async def get_food_suggestions(
             recent_foods=[],
         )
 
-    global_last_qty: dict[tuple[str, UUID], float] = {}
-    global_last_dt: dict[tuple[str, UUID], datetime] = {}
-    recent_keys: list[tuple[str, UUID]] = []
+    global_last_qty: dict[tuple[str, UUID | str], float] = {}
+    global_last_dt: dict[tuple[str, UUID | str], datetime] = {}
+    global_quick_log: dict[str, FoodLog] = {}
+    recent_keys: list[tuple[str, UUID | str]] = []
 
-    window_scores: dict[tuple[str, UUID], float] = {}
-    window_counts: dict[tuple[str, UUID], int] = {}
-    window_last_qty: dict[tuple[str, UUID], float] = {}
-    window_last_dt: dict[tuple[str, UUID], datetime] = {}
+    window_scores: dict[tuple[str, UUID | str], float] = {}
+    window_counts: dict[tuple[str, UUID | str], int] = {}
+    window_last_qty: dict[tuple[str, UUID | str], float] = {}
+    window_last_dt: dict[tuple[str, UUID | str], datetime] = {}
+    window_quick_log: dict[str, FoodLog] = {}
 
     for log in logs:
+        key: tuple[str, UUID | str]
         if log.food_id is not None:
             key = ("food", log.food_id)
         elif log.recipe_id is not None:
             key = ("recipe", log.recipe_id)
+        elif log.custom_name and log.custom_name.strip():
+            norm_quick = normalize_search_text(log.custom_name)
+            if not norm_quick:
+                continue
+            key = ("quick", norm_quick)
         else:
             continue
 
@@ -169,8 +181,10 @@ async def get_food_suggestions(
         )
 
         if key not in global_last_qty:
-            global_last_qty[key] = float(log.quantity_g)
+            global_last_qty[key] = float(log.quantity_g) if log.quantity_g > 0 else 1.0
             global_last_dt[key] = log_dt
+            if key[0] == "quick":
+                global_quick_log[str(key[1])] = log
             if len(recent_keys) < limit_recent * 2:
                 recent_keys.append(key)
 
@@ -181,8 +195,10 @@ async def get_food_suggestions(
                 window_scores[key] = window_scores.get(key, 0.0) + weight
                 window_counts[key] = window_counts.get(key, 0) + 1
                 if key not in window_last_qty:
-                    window_last_qty[key] = float(log.quantity_g)
+                    window_last_qty[key] = float(log.quantity_g) if log.quantity_g > 0 else 1.0
                     window_last_dt[key] = log_dt
+                    if key[0] == "quick":
+                        window_quick_log[str(key[1])] = log
 
     sorted_pick_keys = sorted(
         window_scores.keys(),
@@ -191,8 +207,8 @@ async def get_food_suggestions(
     )
 
     candidate_keys = list(dict.fromkeys([*sorted_pick_keys[: limit_picks * 2], *recent_keys]))
-    food_ids = [uid for kind, uid in candidate_keys if kind == "food"]
-    recipe_ids = [uid for kind, uid in candidate_keys if kind == "recipe"]
+    food_ids = [uid for kind, uid in candidate_keys if kind == "food" and isinstance(uid, UUID)]
+    recipe_ids = [uid for kind, uid in candidate_keys if kind == "recipe" and isinstance(uid, UUID)]
 
     foods_map: dict[UUID, Food] = {}
     if food_ids:
@@ -215,7 +231,7 @@ async def get_food_suggestions(
         recipes_map = {r.id: r for r in r_res.scalars().all()}
 
     def _build_item(
-        key: tuple[str, UUID],
+        key: tuple[str, UUID | str],
         *,
         for_window: bool,
     ) -> FoodSuggestionItem | None:
@@ -229,8 +245,38 @@ async def get_food_suggestions(
         if qty is None or qty <= 0 or last_dt is None:
             return None
 
+        if kind == "quick":
+            qlog = (
+                window_quick_log.get(str(uid)) if for_window else None
+            ) or global_quick_log.get(str(uid))
+            if qlog is None or not qlog.custom_name:
+                return None
+            return FoodSuggestionItem(
+                id=qlog.id,
+                item_type="quick_add",
+                source="quick_add",
+                name=qlog.custom_name.strip(),
+                brand=None,
+                stores=None,
+                serving_size_g=round(qty, 1),
+                serving_label="Ajout libre",
+                kcal_per_100g=round(qlog.kcal, 1),
+                protein_per_100g=round(qlog.protein_g, 1),
+                fat_per_100g=round(qlog.fat_g, 1),
+                carbs_per_100g=round(qlog.carbs_g, 1),
+                fiber_per_100g=0.0,
+                last_quantity_g=round(qty, 1),
+                last_serving_label="Ajout libre",
+                preview_kcal=round(qlog.kcal, 1),
+                preview_protein_g=round(qlog.protein_g, 1),
+                preview_fat_g=round(qlog.fat_g, 1),
+                preview_carbs_g=round(qlog.carbs_g, 1),
+                last_logged_at=last_dt,
+                times_logged_at_hour=window_counts.get(key, 0) if for_window else 0,
+            )
+
         factor = qty / 100.0
-        if kind == "food":
+        if kind == "food" and isinstance(uid, UUID):
             food = foods_map.get(uid)
             if food is None:
                 return None
@@ -261,6 +307,8 @@ async def get_food_suggestions(
                 times_logged_at_hour=window_counts.get(key, 0) if for_window else 0,
             )
 
+        if not isinstance(uid, UUID):
+            return None
         recipe = recipes_map.get(uid)
         if recipe is None:
             return None
@@ -612,11 +660,11 @@ async def list_custom_foods(
 @router.get("/barcode/{barcode}", response_model=FoodResponse)
 async def get_food_by_barcode(
     barcode: str,
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Food:
-    """Lookup food by EAN barcode via local cache or Open Food Facts."""
-    return await get_or_fetch_food_by_barcode(db, barcode)
+    """Lookup food by EAN barcode prioritizing the user's custom food over OFF."""
+    return await get_or_fetch_food_by_barcode(db, barcode, user_id=current_user.id)
 
 
 @router.post("", response_model=FoodResponse, status_code=status.HTTP_201_CREATED)
@@ -625,10 +673,39 @@ async def create_custom_food(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Food:
-    """Create a custom food owned by the current user."""
+    """Create or upsert (by barcode) a custom food owned by the current user."""
+    clean_ext = payload.external_id.strip().replace(" ", "") if payload.external_id else None
+    if clean_ext:
+        existing_res = await db.execute(
+            select(Food)
+            .where(
+                Food.source == FoodSource.CUSTOM,
+                Food.created_by_user_id == current_user.id,
+                Food.external_id == clean_ext,
+            )
+            .limit(1)
+        )
+        existing = existing_res.scalar_one_or_none()
+        if existing is not None:
+            existing.name = payload.name.strip()
+            existing.brand = payload.brand.strip() if payload.brand else None
+            existing.stores = payload.stores.strip() if payload.stores else None
+            existing.serving_size_g = payload.serving_size_g
+            existing.serving_label = (
+                payload.serving_label.strip() if payload.serving_label else None
+            )
+            existing.kcal_per_100g = payload.kcal_per_100g
+            existing.protein_per_100g = payload.protein_per_100g
+            existing.fat_per_100g = payload.fat_per_100g
+            existing.carbs_per_100g = payload.carbs_per_100g
+            existing.fiber_per_100g = payload.fiber_per_100g
+            await db.commit()
+            await db.refresh(existing)
+            return existing
+
     food = Food(
         source=FoodSource.CUSTOM,
-        external_id=payload.external_id.strip() if payload.external_id else None,
+        external_id=clean_ext,
         name=payload.name.strip(),
         brand=payload.brand.strip() if payload.brand else None,
         stores=payload.stores.strip() if payload.stores else None,
@@ -716,7 +793,7 @@ async def customize_food(
             detail="Aliment introuvable",
         )
 
-    if food.source == FoodSource.CUSTOM:
+    if food.source == FoodSource.CUSTOM and food.created_by_user_id == current_user.id:
         updates = payload.model_dump(exclude_unset=True)
         for field, value in updates.items():
             if isinstance(value, str):
@@ -726,9 +803,45 @@ async def customize_food(
         await db.refresh(food)
         return food
 
+    clean_ext = food.external_id.strip().replace(" ", "") if food.external_id else None
+    if clean_ext:
+        existing_res = await db.execute(
+            select(Food)
+            .where(
+                Food.source == FoodSource.CUSTOM,
+                Food.created_by_user_id == current_user.id,
+                Food.external_id == clean_ext,
+            )
+            .limit(1)
+        )
+        existing_custom = existing_res.scalar_one_or_none()
+        if existing_custom is not None:
+            existing_custom.name = payload.name.strip() if payload.name else food.name
+            if payload.brand is not None:
+                existing_custom.brand = payload.brand.strip() or None
+            if payload.stores is not None:
+                existing_custom.stores = payload.stores.strip() or None
+            if payload.serving_size_g is not None:
+                existing_custom.serving_size_g = payload.serving_size_g
+            if payload.serving_label is not None:
+                existing_custom.serving_label = payload.serving_label.strip() or None
+            if payload.kcal_per_100g is not None:
+                existing_custom.kcal_per_100g = payload.kcal_per_100g
+            if payload.protein_per_100g is not None:
+                existing_custom.protein_per_100g = payload.protein_per_100g
+            if payload.fat_per_100g is not None:
+                existing_custom.fat_per_100g = payload.fat_per_100g
+            if payload.carbs_per_100g is not None:
+                existing_custom.carbs_per_100g = payload.carbs_per_100g
+            if payload.fiber_per_100g is not None:
+                existing_custom.fiber_per_100g = payload.fiber_per_100g
+            await db.commit()
+            await db.refresh(existing_custom)
+            return existing_custom
+
     customized = Food(
         source=FoodSource.CUSTOM,
-        external_id=food.external_id,
+        external_id=clean_ext,
         name=payload.name.strip() if payload.name else food.name,
         brand=(
             payload.brand.strip() or None

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -38,6 +39,15 @@ class _BarcodeScannerScreenState extends ConsumerState<BarcodeScannerScreen>
   String? _cameraError;
   String? _error;
 
+  DateTime? _cameraStartedAt;
+  String? _candidateCode;
+  int _candidateHits = 0;
+  DateTime? _candidateFirstSeenAt;
+
+  static const int _requiredConsensusHits = 3;
+  static const Duration _autofocusWarmup = Duration(milliseconds: 350);
+  static const Duration _consensusWindow = Duration(milliseconds: 1200);
+
   bool get _useCamera =>
       !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
@@ -48,7 +58,13 @@ class _BarcodeScannerScreenState extends ConsumerState<BarcodeScannerScreen>
     if (_useCamera) {
       _scannerController = MobileScannerController(
         autoStart: false,
-        detectionSpeed: DetectionSpeed.noDuplicates,
+        detectionSpeed: DetectionSpeed.normal,
+        formats: const [
+          BarcodeFormat.ean13,
+          BarcodeFormat.ean8,
+          BarcodeFormat.upcA,
+          BarcodeFormat.upcE,
+        ],
       );
       if (widget.isActive) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -94,8 +110,111 @@ class _BarcodeScannerScreenState extends ConsumerState<BarcodeScannerScreen>
     super.dispose();
   }
 
+  void _resetConsensus() {
+    _candidateCode = null;
+    _candidateHits = 0;
+    _candidateFirstSeenAt = null;
+  }
+
+  /// Strict GS1 EAN-8 / UPC-A (12) / EAN-13 digits-only & modulo-10 checksum validation.
+  bool _isValidEanUpc(String raw) {
+    final code = raw.trim();
+    if (!RegExp(r'^(\d{8}|\d{12}|\d{13})$').hasMatch(code)) {
+      return false;
+    }
+    var sum = 0;
+    var weight = 3;
+    for (var i = code.length - 2; i >= 0; i--) {
+      sum += (code.codeUnitAt(i) - 48) * weight;
+      weight = weight == 3 ? 1 : 3;
+    }
+    final expectedCheck = (10 - (sum % 10)) % 10;
+    final actualCheck = code.codeUnitAt(code.length - 1) - 48;
+    return expectedCheck == actualCheck;
+  }
+
+  void _handleBarcodeCapture(BarcodeCapture capture) {
+    if (_isSearching || _cameraStartedAt == null) return;
+
+    final now = DateTime.now();
+    if (now.difference(_cameraStartedAt!) < _autofocusWarmup) {
+      return;
+    }
+
+    final validCodes = <String>[];
+    for (final barcode in capture.barcodes) {
+      final raw = barcode.rawValue?.trim();
+      if (raw != null && _isValidEanUpc(raw)) {
+        validCodes.add(raw);
+      }
+    }
+    if (validCodes.isEmpty) {
+      return;
+    }
+
+    // Prioritize EAN-13 (13 digits) over shorter codes if multiple appear in the same frame.
+    validCodes.sort((a, b) => b.length.compareTo(a.length));
+    final bestCode = validCodes.first;
+
+    if (_candidateCode == bestCode &&
+        _candidateFirstSeenAt != null &&
+        now.difference(_candidateFirstSeenAt!) <= _consensusWindow) {
+      _candidateHits += 1;
+    } else {
+      _candidateCode = bestCode;
+      _candidateHits = 1;
+      _candidateFirstSeenAt = now;
+    }
+
+    if (_candidateHits >= _requiredConsensusHits) {
+      _resetConsensus();
+      HapticFeedback.mediumImpact();
+      _lookupBarcode(bestCode);
+    }
+  }
+
+  Future<void> _openManualBarcodeDialog() async {
+    final ctrl = TextEditingController();
+    final entered = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Saisir le code-barres'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          style: AppTheme.numericStyle(fontSize: 16),
+          decoration: const InputDecoration(
+            labelText: 'Code EAN / UPC',
+            hintText: '3017620422003',
+          ),
+          onSubmitted: (value) => Navigator.of(ctx).pop(value.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
+            child: const Text('Rechercher'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+
+    if (entered != null && entered.isNotEmpty && mounted) {
+      _resetConsensus();
+      await _lookupBarcode(entered);
+    }
+  }
+
   Future<void> _stopCamera() async {
     final ctrl = _scannerController;
+    _cameraStartedAt = null;
+    _resetConsensus();
     if (ctrl == null) return;
     try {
       if (ctrl.value.isRunning) {
@@ -159,6 +278,8 @@ class _BarcodeScannerScreenState extends ConsumerState<BarcodeScannerScreen>
       if (!ctrl.value.isRunning) {
         await ctrl.start();
       }
+      _cameraStartedAt = DateTime.now();
+      _resetConsensus();
     } on MobileScannerException catch (e) {
       if (!mounted) return;
       final details = e.errorDetails?.message;
@@ -367,62 +488,128 @@ class _BarcodeScannerScreenState extends ConsumerState<BarcodeScannerScreen>
       );
     }
 
-    return Stack(
-      children: [
-        MobileScanner(
-          controller: _scannerController,
-          errorBuilder: (context, error, _) {
-            final details = error.errorDetails?.message;
-            final isDenied =
-                error.errorCode == MobileScannerErrorCode.permissionDenied;
-            return _buildCameraErrorPanel(
-              message:
-                  'Erreur scanner (${error.errorCode.name})${details != null && details.isNotEmpty ? ' : $details' : ''}',
-              showSettings: isDenied || _permanentlyDenied,
-            );
-          },
-          onDetect: (capture) {
-            final barcode = capture.barcodes.firstOrNull?.rawValue;
-            if (barcode != null && barcode.isNotEmpty) {
-              _lookupBarcode(barcode);
-            }
-          },
-        ),
-        Center(
-          child: Container(
-            width: 260,
-            height: 160,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: AppColors.calories, width: 2.5),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final winWidth = constraints.maxWidth * 0.85;
+        const winHeight = 148.0;
+        final centerY = constraints.maxHeight * 0.46;
+        final scanWindow = Rect.fromCenter(
+          center: Offset(constraints.maxWidth / 2, centerY),
+          width: winWidth,
+          height: winHeight,
+        );
+
+        return Stack(
+          children: [
+            MobileScanner(
+              controller: _scannerController,
+              scanWindow: scanWindow,
+              errorBuilder: (context, error, _) {
+                final details = error.errorDetails?.message;
+                final isDenied =
+                    error.errorCode == MobileScannerErrorCode.permissionDenied;
+                return _buildCameraErrorPanel(
+                  message:
+                      'Erreur scanner (${error.errorCode.name})${details != null && details.isNotEmpty ? ' : $details' : ''}',
+                  showSettings: isDenied || _permanentlyDenied,
+                );
+              },
+              onDetect: _handleBarcodeCapture,
             ),
-          ),
-        ),
-        if (_isSearching)
-          Container(
-            color: AppColors.background.withValues(alpha: 0.7),
-            child: const Center(
-              child: CircularProgressIndicator(color: AppColors.calories),
-            ),
-          ),
-        if (_error != null)
-          Positioned(
-            left: 20,
-            right: 20,
-            bottom: 32,
-            child: Card(
-              color: AppColors.error.withValues(alpha: 0.92),
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Text(
-                  _error!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+            Positioned.fromRect(
+              rect: scanWindow,
+              child: IgnorePointer(
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: AppColors.calories, width: 2.5),
+                    color: AppColors.calories.withValues(alpha: 0.05),
+                  ),
                 ),
               ),
             ),
-          ),
-      ],
+            Positioned(
+              left: 24,
+              right: 24,
+              top: scanWindow.bottom + 14,
+              child: IgnorePointer(
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.background.withValues(alpha: 0.72),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Text(
+                      'Maintenez le code-barres bien à plat dans le cadre',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 20,
+              right: 20,
+              bottom: _error != null ? 92 : 28,
+              child: Center(
+                child: TextButton.icon(
+                  onPressed: _isSearching ? null : _openManualBarcodeDialog,
+                  style: TextButton.styleFrom(
+                    backgroundColor: AppColors.surface.withValues(alpha: 0.88),
+                    foregroundColor: AppColors.textPrimary,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
+                      side: const BorderSide(color: AppColors.border),
+                    ),
+                  ),
+                  icon: const Icon(LucideIcons.keyboard, size: 16),
+                  label: const Text(
+                    'Saisir le code',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+            ),
+            if (_isSearching)
+              Container(
+                color: AppColors.background.withValues(alpha: 0.7),
+                child: const Center(
+                  child: CircularProgressIndicator(color: AppColors.calories),
+                ),
+              ),
+            if (_error != null)
+              Positioned(
+                left: 20,
+                right: 20,
+                bottom: 24,
+                child: Card(
+                  color: AppColors.error.withValues(alpha: 0.92),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Text(
+                      _error!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 

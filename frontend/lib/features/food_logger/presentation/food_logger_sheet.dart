@@ -597,6 +597,7 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
       ref.invalidate(dashboardProvider);
       ref.invalidate(journalDayProvider);
       ref.invalidate(fullMetricContextProvider);
+      ref.invalidate(foodSuggestionsProvider);
       if (!mounted) return;
       Navigator.of(context).pop();
     } catch (e) {
@@ -1206,9 +1207,11 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
     for (var i = 0; i < items.length; i++) {
       final item = items[i];
       if (i > 0) widgets.add(const Divider());
-      final count = item.isRecipe
-          ? basket.countFor(recipeId: item.id)
-          : basket.countFor(foodId: item.id);
+      final count = item.isQuickAdd
+          ? basket.countFor(quickName: item.name)
+          : (item.isRecipe
+              ? basket.countFor(recipeId: item.id)
+              : basket.countFor(foodId: item.id));
       widgets.add(
         FoodSearchResultRow(
           name: item.name,
@@ -1216,10 +1219,12 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
           stores: item.stores,
           source: item.source,
           quantityG: item.lastQuantityG,
-          customQuantityText: item.isRecipe && item.servingWeightG != null
-              ? formatRecipeUnitSubtitle(
-                  item.lastQuantityG, item.servingWeightG)
-              : null,
+          customQuantityText: item.isQuickAdd
+              ? 'Ajout libre'
+              : (item.isRecipe && item.servingWeightG != null
+                  ? formatRecipeUnitSubtitle(
+                      item.lastQuantityG, item.servingWeightG)
+                  : null),
           kcal: item.previewKcal,
           proteinG: item.previewProteinG,
           fatG: item.previewFatG,
@@ -1230,7 +1235,20 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
             ref.read(foodBasketProvider.notifier).addSuggestion(item);
           },
           onTapRow: () async {
-            if (item.isRecipe) {
+            if (item.isQuickAdd) {
+              setState(() {
+                _quickNameController.text = item.name;
+                _quickKcalController.text =
+                    item.previewKcal.toStringAsFixed(item.previewKcal % 1 == 0 ? 0 : 1);
+                _quickProteinController.text =
+                    item.previewProteinG.toStringAsFixed(item.previewProteinG % 1 == 0 ? 0 : 1);
+                _quickFatController.text =
+                    item.previewFatG.toStringAsFixed(item.previewFatG % 1 == 0 ? 0 : 1);
+                _quickCarbsController.text =
+                    item.previewCarbsG.toStringAsFixed(item.previewCarbsG % 1 == 0 ? 0 : 1);
+                _tabIndex = 2;
+              });
+            } else if (item.isRecipe) {
               final detail =
                   await ref.read(recipeRepositoryProvider).getRecipe(item.id);
               if (!mounted) return;

@@ -147,6 +147,7 @@ class FoodSuggestionItemModel {
   final double? carbsPerServing;
 
   bool get isRecipe => itemType == 'recipe';
+  bool get isQuickAdd => itemType == 'quick_add';
 
   FoodModel toFoodModel() => FoodModel(
         id: id,

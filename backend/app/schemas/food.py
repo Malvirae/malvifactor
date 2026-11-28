@@ -82,7 +82,7 @@ class FoodSuggestionItem(BaseModel):
     """Contextual suggestion or recent food/recipe item with remembered quantity."""
 
     id: UUID
-    item_type: Literal["standard", "custom", "recipe"]
+    item_type: Literal["standard", "custom", "recipe", "quick_add"]
     source: str
     name: str
     brand: str | None = None

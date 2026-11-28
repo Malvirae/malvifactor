@@ -4,6 +4,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:malvifactor/core/theme/app_theme.dart';
 import 'package:malvifactor/features/food_logger/data/food_repository.dart';
+import 'package:malvifactor/features/food_logger/presentation/widgets/food_search_widgets.dart';
 
 class BarcodeReviewSheet extends ConsumerStatefulWidget {
   const BarcodeReviewSheet({
@@ -56,17 +57,6 @@ class _BarcodeReviewSheetState extends ConsumerState<BarcodeReviewSheet> {
     super.dispose();
   }
 
-  String get _sourceLabel {
-    switch (widget.food.source) {
-      case 'custom':
-        return 'Personnalisé';
-      case 'ciqual':
-        return 'Ciqual';
-      default:
-        return 'Open Food Facts';
-    }
-  }
-
   double _parse(TextEditingController c, double fallback) {
     return double.tryParse(c.text.trim().replaceAll(',', '.')) ?? fallback;
   }
@@ -87,6 +77,13 @@ class _BarcodeReviewSheetState extends ConsumerState<BarcodeReviewSheet> {
             fiberPer100g: _parse(_fiberCtrl, f.fiberPer100g),
           );
       if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Version corrigée enregistrée dans Mes aliments'),
+          duration: Duration(milliseconds: 2200),
+          backgroundColor: AppColors.success,
+        ),
+      );
       Navigator.of(context).pop<FoodModel>(updated);
     } catch (e) {
       if (!mounted) return;
@@ -129,27 +126,7 @@ class _BarcodeReviewSheetState extends ConsumerState<BarcodeReviewSheet> {
             const SizedBox(height: 14),
             Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.calories.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: AppColors.calories.withValues(alpha: 0.4),
-                    ),
-                  ),
-                  child: Text(
-                    _sourceLabel,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.calories,
-                    ),
-                  ),
-                ),
+                FoodSourceBadge(source: f.source),
                 const SizedBox(width: 8),
                 if (f.externalId != null)
                   Text(

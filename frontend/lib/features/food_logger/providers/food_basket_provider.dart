@@ -152,12 +152,18 @@ class FoodBasketState {
   double get totalCarbsG => items.fold(0.0, (sum, i) => sum + i.carbsG);
   int get itemCount => items.length;
 
-  int countFor({String? foodId, String? recipeId}) {
+  int countFor({String? foodId, String? recipeId, String? quickName}) {
     if (foodId != null) {
       return items.where((i) => i.foodId == foodId).length;
     }
     if (recipeId != null) {
       return items.where((i) => i.recipeId == recipeId).length;
+    }
+    if (quickName != null) {
+      final norm = quickName.trim().toLowerCase();
+      return items
+          .where((i) => i.isQuickAdd && i.name.trim().toLowerCase() == norm)
+          .length;
     }
     return 0;
   }
@@ -267,6 +273,16 @@ class FoodBasketNotifier extends StateNotifier<FoodBasketState> {
   }
 
   void addSuggestion(FoodSuggestionItemModel suggestion, {double? quantityG}) {
+    if (suggestion.isQuickAdd) {
+      addQuickAdd(
+        name: suggestion.name,
+        kcal: suggestion.previewKcal,
+        proteinG: suggestion.previewProteinG,
+        fatG: suggestion.previewFatG,
+        carbsG: suggestion.previewCarbsG,
+      );
+      return;
+    }
     final qty = (quantityG != null && quantityG > 0)
         ? quantityG
         : suggestion.lastQuantityG;

@@ -11,6 +11,7 @@ import 'package:malvifactor/features/food_logger/data/food_repository.dart';
 import 'package:malvifactor/features/food_logger/presentation/food_logger_sheet.dart';
 import 'package:malvifactor/features/food_logger/presentation/widgets/food_search_widgets.dart';
 import 'package:malvifactor/features/food_logger/presentation/widgets/recipe_portion_input.dart';
+import 'package:malvifactor/features/food_logger/providers/food_basket_provider.dart';
 import 'package:malvifactor/features/journal/data/journal_repository.dart';
 import 'package:malvifactor/shared/widgets/week_date_strip.dart';
 
@@ -639,6 +640,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
     if (updated == true) {
       ref.invalidate(journalDayProvider);
       ref.invalidate(dashboardProvider);
+      ref.invalidate(foodSuggestionsProvider);
     }
   }
 

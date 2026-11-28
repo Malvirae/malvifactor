@@ -875,7 +875,7 @@ class _IngredientPickerSheetState
               ),
               data: (suggestions) {
                 final recentIngredients = suggestions.recentFoods
-                    .where((item) => !item.isRecipe)
+                    .where((item) => !item.isRecipe && !item.isQuickAdd)
                     .toList();
                 if (recentIngredients.isEmpty) {
                   return const Center(

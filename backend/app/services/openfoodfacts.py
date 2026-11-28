@@ -1,6 +1,7 @@
 import re
 import unicodedata
 from typing import Any
+from uuid import UUID
 
 import httpx
 from fastapi import HTTPException, status
@@ -81,8 +82,10 @@ def _clean_comma_list(raw: Any, max_len: int = 255) -> str | None:
 async def get_or_fetch_food_by_barcode(
     db: AsyncSession,
     barcode: str,
+    *,
+    user_id: UUID | None = None,
 ) -> Food:
-    """Return cached Open Food Facts product or fetch, persist, and return it."""
+    """Return user's custom food for barcode first, else cached OFF product, else fetch OFF."""
     clean_barcode = barcode.strip().replace(" ", "")
     if not clean_barcode:
         raise HTTPException(
@@ -90,18 +93,20 @@ async def get_or_fetch_food_by_barcode(
             detail="Code-barres invalide",
         )
 
-    custom_result = await db.execute(
-        select(Food)
-        .where(
-            Food.source == FoodSource.CUSTOM,
-            Food.external_id == clean_barcode,
+    if user_id is not None:
+        user_custom_result = await db.execute(
+            select(Food)
+            .where(
+                Food.source == FoodSource.CUSTOM,
+                Food.created_by_user_id == user_id,
+                Food.external_id == clean_barcode,
+            )
+            .order_by(desc(Food.created_at))
+            .limit(1)
         )
-        .order_by(desc(Food.created_at))
-        .limit(1)
-    )
-    custom_food = custom_result.scalar_one_or_none()
-    if custom_food is not None:
-        return custom_food
+        user_custom_food = user_custom_result.scalar_one_or_none()
+        if user_custom_food is not None:
+            return user_custom_food
 
     existing_result = await db.execute(
         select(Food).where(
