@@ -82,6 +82,22 @@ final journalDayProvider =
   JournalDayNotifier.new,
 );
 
+/// Returns YYYY-MM-DD keys of days in the week starting at [monday] that have logged entries.
+final journalWeekLoggedDaysProvider =
+    FutureProvider.family<Set<String>, DateTime>((ref, monday) async {
+  // Re-evaluate automatically whenever dashboard data is invalidated after log mutations.
+  ref.watch(dashboardProvider);
+  final sunday = monday.add(const Duration(days: 6));
+  final summary = await ref
+      .watch(dashboardRepositoryProvider)
+      .fetchLogsSummary(monday, sunday);
+  return {
+    for (final s in summary)
+      if (s.entriesCount > 0)
+        '${s.date.year}-${s.date.month.toString().padLeft(2, '0')}-${s.date.day.toString().padLeft(2, '0')}',
+  };
+});
+
 class JournalScreen extends ConsumerStatefulWidget {
   const JournalScreen({super.key});
 
@@ -701,16 +717,98 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
     final entries = dayAsync.valueOrNull?.entries ?? const <FoodLogItemModel>[];
 
     final now = DateTime.now();
-    final isToday = selectedDate.year == now.year &&
-        selectedDate.month == now.month &&
-        selectedDate.day == now.day;
+    final todayDate = DateTime(now.year, now.month, now.day);
+    final selectedDayOnly =
+        DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
+    final isToday = selectedDayOnly == todayDate;
     final headerTitle = isToday
         ? 'AUJOURD’HUI'
         : DateFormat('EEE d MMM', 'fr_FR').format(selectedDate).toUpperCase();
 
+    final weekMonday =
+        selectedDayOnly.subtract(Duration(days: selectedDayOnly.weekday - 1));
+    final weekLoggedDaysAsync =
+        ref.watch(journalWeekLoggedDaysProvider(weekMonday));
+    final loggedDayKeys = <String>{
+      ...(weekLoggedDaysAsync.valueOrNull ?? const <String>{}),
+    };
+    final selectedKey =
+        '${selectedDayOnly.year}-${selectedDayOnly.month.toString().padLeft(2, '0')}-${selectedDayOnly.day.toString().padLeft(2, '0')}';
+    if (dayAsync.hasValue) {
+      if (entries.isNotEmpty) {
+        loggedDayKeys.add(selectedKey);
+      } else {
+        loggedDayKeys.remove(selectedKey);
+      }
+    }
+
+    const headerSurfaceColor = Color(0xFF121317);
+
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text(headerTitle),
+        backgroundColor: headerSurfaceColor,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        title: isToday
+            ? Text(
+                headerTitle,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.4,
+                ),
+              )
+            : InkWell(
+                onTap: () => _changeDate(todayDate),
+                borderRadius: BorderRadius.circular(10),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 2,
+                    vertical: 4,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          headerTitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.calories.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: AppColors.calories.withValues(alpha: 0.4),
+                            width: 0.8,
+                          ),
+                        ),
+                        child: const Text(
+                          'Aujourd’hui',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.calories,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
         actions: [
           IconButton(
             tooltip: 'Choisir une date',
@@ -756,20 +854,29 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
           Column(
             children: [
               Container(
-                color: AppColors.background,
-                padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+                decoration: const BoxDecoration(
+                  color: headerSurfaceColor,
+                  border: Border(
+                    bottom: BorderSide(color: Colors.white10, width: 0.8),
+                  ),
+                ),
+                padding: const EdgeInsets.fromLTRB(12, 2, 12, 12),
                 child: Column(
                   children: [
                     WeekDateStrip(
                       selectedDate: selectedDate,
-                      showHeaderRow: true,
+                      showHeaderRow: false,
+                      loggedDayKeys: loggedDayKeys,
                       onDateSelected: _changeDate,
                     ),
-                    const SizedBox(height: 10),
-                    dayAsync.whenOrNull(
-                          data: (day) => _StickyMacroHeader(day: day),
-                        ) ??
-                        const SizedBox(height: 32),
+                    const SizedBox(height: 11),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      child: dayAsync.whenOrNull(
+                            data: (day) => _StickyMacroHeader(day: day),
+                          ) ??
+                          const SizedBox(height: 32),
+                    ),
                   ],
                 ),
               ),
@@ -779,7 +886,6 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
                   count: _pendingLogIds.length,
                   onCancel: _cancelPendingBatchAction,
                 ),
-              const Divider(),
               Expanded(
                 child: GestureDetector(
                   behavior: HitTestBehavior.translucent,
@@ -1139,12 +1245,14 @@ class _HourlyTimelineList extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(
         12,
         8,
-        14,
-        selectedIds.isNotEmpty ? 84 : 24,
+        12,
+        selectedIds.isNotEmpty ? 84 : 28,
       ),
       itemCount: hours.length,
       itemBuilder: (context, index) {
         final hour = hours[index];
+        final isFirst = index == 0;
+        final isLast = index == hours.length - 1;
         final hourEntries = grouped[hour] ?? const [];
         final hourLabel = '${hour.toString().padLeft(2, '0')}:00';
 
@@ -1157,155 +1265,185 @@ class _HourlyTimelineList extends StatelessWidget {
             ? AppColors.weight
             : AppColors.calories;
 
-        return Padding(
-          key: ValueKey<int>(hour),
-          padding: const EdgeInsets.only(bottom: 7),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8.5,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceElevated,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      hourLabel,
-                      style: AppTheme.numericStyle(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 7),
-                  InkWell(
-                    onTap: () => onAddAtHour(hour),
-                    borderRadius: BorderRadius.circular(999),
-                    child: Container(
-                      width: 22,
-                      height: 22,
-                      decoration: BoxDecoration(
-                        color: pendingAction != null
-                            ? actionColor.withValues(alpha: 0.2)
-                            : AppColors.surfaceElevated,
-                        shape: BoxShape.circle,
-                        border: pendingAction != null
-                            ? Border.all(color: actionColor, width: 1.2)
-                            : null,
-                      ),
-                      child: Icon(
-                        pendingAction != null
-                            ? LucideIcons.arrowRight
-                            : LucideIcons.plus,
-                        size: 13,
-                        color: pendingAction != null
-                            ? actionColor
-                            : AppColors.textSecondary,
-                      ),
-                    ),
-                  ),
-                  const Spacer(),
-                  if (hourEntries.isNotEmpty)
-                    Text(
-                      '${hourKcal.round()} kcal · ${hourP.round()}P · ${hourF.round()}L · ${hourC.round()}G',
-                      style: AppTheme.numericStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                ],
-              ),
-              if (hourEntries.isNotEmpty) ...[
-                const SizedBox(height: 5),
-                Padding(
-                  padding: const EdgeInsets.only(left: 28),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.border),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Column(
-                      children: [
-                        for (var i = 0; i < hourEntries.length; i++) ...[
-                          if (i > 0)
-                            const Divider(
-                              height: 1,
-                              thickness: 0.6,
-                              color: Colors.white10,
-                            ),
-                          Builder(
-                            builder: (_) {
-                              final item = hourEntries[i];
-                              final isSelected = selectedIds.contains(item.id);
-                              String? recipePortionHint;
-                              if (item.source == 'recipe' &&
-                                  item.recipeServingWeightG != null &&
-                                  item.recipeServingWeightG! > 0) {
-                                final sw = item.recipeServingWeightG!;
-                                final simple = isSimpleServingMultiple(
-                                  item.quantityG,
-                                  sw,
-                                );
-                                final p = simple
-                                    ? snapPortionValue(item.quantityG, sw)
-                                    : (item.quantityG / sw);
-                                recipePortionHint =
-                                    '${formatFrNumber(p, decimals: 2, trimTrailingZero: simple)} ${formatPortionsWord(p)}';
-                              }
-                              final metaSubtitle =
-                                  buildJournalFoodMetaSubtitle(
-                                name: item.displayName,
-                                brand: item.brand,
-                                stores: item.stores,
-                                source: item.source,
-                                recipePortionHint: recipePortionHint,
-                              );
+        const double pillWidth = 50.0;
+        const double pillHeight = 24.0;
+        const double topPad = 9.0;
+        final double bottomPad = hourEntries.isEmpty ? 10.0 : 6.0;
 
-                              return Dismissible(
-                                key: ValueKey<String>(item.id),
-                                direction: DismissDirection.endToStart,
-                                background: Container(
-                                  alignment: Alignment.centerRight,
-                                  padding: const EdgeInsets.only(right: 16),
-                                  color: AppColors.error.withValues(alpha: 0.2),
-                                  child: const Icon(
-                                    LucideIcons.trash2,
-                                    color: AppColors.error,
-                                    size: 18,
-                                  ),
+        return CustomPaint(
+          key: ValueKey<int>(hour),
+          painter: _TimelineRailPainter(
+            railX: pillWidth / 2,
+            pillCenterY: topPad + pillHeight / 2,
+            drawTop: !isFirst,
+            drawBottom: !isLast,
+            color: const Color(0xFF262932),
+            strokeWidth: 1.5,
+          ),
+          child: Padding(
+            padding: EdgeInsets.only(top: topPad, bottom: bottomPad),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: pillWidth,
+                      height: pillHeight,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1A1C23),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.08),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: Text(
+                        hourLabel,
+                        style: AppTheme.numericStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: hourEntries.isNotEmpty
+                              ? const Color(0xFFE2E8F0)
+                              : AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    InkWell(
+                      onTap: () => onAddAtHour(hour),
+                      borderRadius: BorderRadius.circular(999),
+                      child: Container(
+                        width: 23,
+                        height: 23,
+                        decoration: BoxDecoration(
+                          color: pendingAction != null
+                              ? actionColor.withValues(alpha: 0.2)
+                              : const Color(0xFF1E2028),
+                          shape: BoxShape.circle,
+                          border: pendingAction != null
+                              ? Border.all(color: actionColor, width: 1.2)
+                              : Border.all(
+                                  color: Colors.white.withValues(alpha: 0.06),
+                                  width: 0.8,
                                 ),
-                                onDismissed: (_) => onDeleteItem(item),
+                        ),
+                        child: Icon(
+                          pendingAction != null
+                              ? LucideIcons.arrowRight
+                              : LucideIcons.plus,
+                          size: 13,
+                          color: pendingAction != null
+                              ? actionColor
+                              : AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    if (hourEntries.isNotEmpty)
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerRight,
+                            child: _HourTotalsRow(
+                              kcal: hourKcal,
+                              proteinG: hourP,
+                              fatG: hourF,
+                              carbsG: hourC,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                if (hourEntries.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  for (final item in hourEntries)
+                    Builder(
+                      builder: (_) {
+                        final isSelected = selectedIds.contains(item.id);
+                        String? recipePortionHint;
+                        if (item.source == 'recipe' &&
+                            item.recipeServingWeightG != null &&
+                            item.recipeServingWeightG! > 0) {
+                          final sw = item.recipeServingWeightG!;
+                          final simple = isSimpleServingMultiple(
+                            item.quantityG,
+                            sw,
+                          );
+                          final p = simple
+                              ? snapPortionValue(item.quantityG, sw)
+                              : (item.quantityG / sw);
+                          recipePortionHint =
+                              '${formatFrNumber(p, decimals: 2, trimTrailingZero: simple)} ${formatPortionsWord(p)}';
+                        }
+                        final metaSubtitle = buildJournalFoodMetaSubtitle(
+                          name: item.displayName,
+                          brand: item.brand,
+                          stores: item.stores,
+                          source: item.source,
+                          recipePortionHint: recipePortionHint,
+                        );
+                        final quantityText = item.recipeServingWeightG != null
+                            ? '· ${formatRecipeUnitSubtitle(item.quantityG, item.recipeServingWeightG)}'
+                            : '· ${formatGramsText(item.quantityG)}';
+
+                        return Padding(
+                          padding: const EdgeInsets.only(
+                            left: 34,
+                            bottom: 7,
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Dismissible(
+                              key: ValueKey<String>(item.id),
+                              direction: DismissDirection.endToStart,
+                              background: Container(
+                                alignment: Alignment.centerRight,
+                                padding: const EdgeInsets.only(right: 16),
+                                color: AppColors.error.withValues(alpha: 0.22),
+                                child: const Icon(
+                                  LucideIcons.trash2,
+                                  color: AppColors.error,
+                                  size: 18,
+                                ),
+                              ),
+                              onDismissed: (_) => onDeleteItem(item),
+                              child: Material(
+                                color: isSelected
+                                    ? AppColors.calories.withValues(alpha: 0.14)
+                                    : const Color(0xFF16181E),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  side: isSelected
+                                      ? BorderSide(
+                                          color: AppColors.calories
+                                              .withValues(alpha: 0.65),
+                                          width: 1.2,
+                                        )
+                                      : BorderSide.none,
+                                ),
                                 child: InkWell(
                                   onTap: () => onToggleSelect(item),
-                                  child: AnimatedContainer(
-                                    duration: const Duration(milliseconds: 140),
-                                    color: isSelected
-                                        ? AppColors.calories
-                                            .withValues(alpha: 0.12)
-                                        : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Padding(
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 6.5,
+                                      horizontal: 12,
+                                      vertical: 9.5,
                                     ),
                                     child: Row(
                                       children: [
                                         if (isSelected)
                                           Container(
-                                            width: 32,
-                                            height: 32,
+                                            width: 34,
+                                            height: 34,
                                             decoration: BoxDecoration(
                                               color: AppColors.calories,
                                               borderRadius:
-                                                  BorderRadius.circular(9),
+                                                  BorderRadius.circular(10),
                                             ),
                                             child: const Icon(
                                               LucideIcons.check,
@@ -1318,40 +1456,42 @@ class _HourlyTimelineList extends StatelessWidget {
                                             name: item.displayName,
                                             source: item.source,
                                             category: item.category,
-                                            size: 32,
-                                            borderRadius: 9,
+                                            size: 34,
+                                            borderRadius: 10,
                                           ),
-                                        const SizedBox(width: 9),
+                                        const SizedBox(width: 10),
                                         Expanded(
                                           child: Column(
                                             crossAxisAlignment:
                                                 CrossAxisAlignment.start,
+                                            mainAxisSize: MainAxisSize.min,
                                             children: [
                                               Text(
                                                 item.displayName,
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                                 style: const TextStyle(
-                                                  fontSize: 13.5,
-                                                  fontWeight: FontWeight.w600,
-                                                  height: 1.15,
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: AppColors.textPrimary,
+                                                  height: 1.18,
                                                 ),
                                               ),
                                               if (metaSubtitle != null) ...[
-                                                const SizedBox(height: 1),
+                                                const SizedBox(height: 1.5),
                                                 Text(
                                                   metaSubtitle,
                                                   maxLines: 1,
                                                   overflow:
                                                       TextOverflow.ellipsis,
                                                   style: const TextStyle(
-                                                    fontSize: 11,
+                                                    fontSize: 11.5,
                                                     color: Color(0xFF94A3B8),
                                                     height: 1.15,
                                                   ),
                                                 ),
                                               ],
-                                              const SizedBox(height: 3),
+                                              const SizedBox(height: 4),
                                               FittedBox(
                                                 fit: BoxFit.scaleDown,
                                                 alignment: Alignment.centerLeft,
@@ -1363,14 +1503,14 @@ class _HourlyTimelineList extends StatelessWidget {
                                                       '${item.kcal.round()} kcal',
                                                       style: AppTheme
                                                           .numericStyle(
-                                                        fontSize: 11,
+                                                        fontSize: 11.5,
                                                         fontWeight:
                                                             FontWeight.w700,
                                                         color:
                                                             AppColors.calories,
                                                       ),
                                                     ),
-                                                    const SizedBox(width: 5),
+                                                    const SizedBox(width: 5.5),
                                                     _MacroBadge(
                                                       text:
                                                           '${item.proteinG.round()}P',
@@ -1388,15 +1528,12 @@ class _HourlyTimelineList extends StatelessWidget {
                                                           '${item.carbsG.round()}G',
                                                       color: AppColors.carbs,
                                                     ),
-                                                    const SizedBox(width: 5),
+                                                    const SizedBox(width: 5.5),
                                                     Text(
-                                                      item.recipeServingWeightG !=
-                                                              null
-                                                          ? '· ${formatRecipeUnitSubtitle(item.quantityG, item.recipeServingWeightG)}'
-                                                          : '· ${item.quantityG.round()} g',
+                                                      quantityText,
                                                       style: AppTheme
                                                           .numericStyle(
-                                                        fontSize: 11,
+                                                        fontSize: 11.5,
                                                         color:
                                                             AppColors.textMuted,
                                                       ),
@@ -1407,35 +1544,192 @@ class _HourlyTimelineList extends StatelessWidget {
                                             ],
                                           ),
                                         ),
-                                        IconButton(
-                                          visualDensity: VisualDensity.compact,
-                                          padding: const EdgeInsets.all(4),
-                                          constraints: const BoxConstraints(),
-                                          tooltip: 'Modifier',
-                                          onPressed: () => onEditItem(item),
-                                          icon: const Icon(
-                                            LucideIcons.pencil,
-                                            size: 17,
-                                            color: AppColors.textMuted,
+                                        const SizedBox(width: 8),
+                                        InkWell(
+                                          onTap: () => onEditItem(item),
+                                          borderRadius:
+                                              BorderRadius.circular(999),
+                                          child: Container(
+                                            width: 32,
+                                            height: 32,
+                                            alignment: Alignment.center,
+                                            decoration: const BoxDecoration(
+                                              color: Color(0xFF262932),
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Icon(
+                                              Icons.edit,
+                                              size: 15,
+                                              color: AppColors.textPrimary,
+                                            ),
                                           ),
                                         ),
                                       ],
                                     ),
                                   ),
                                 ),
-                              );
-                            },
+                              ),
+                            ),
                           ),
-                        ],
-                      ],
+                        );
+                      },
                     ),
-                  ),
-                ),
+                ],
               ],
-            ],
+            ),
           ),
         );
       },
+    );
+  }
+}
+
+class _TimelineRailPainter extends CustomPainter {
+  const _TimelineRailPainter({
+    required this.railX,
+    required this.pillCenterY,
+    required this.drawTop,
+    required this.drawBottom,
+    required this.color,
+    required this.strokeWidth,
+  });
+
+  final double railX;
+  final double pillCenterY;
+  final bool drawTop;
+  final bool drawBottom;
+  final Color color;
+  final double strokeWidth;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.butt;
+
+    final startY = drawTop ? 0.0 : pillCenterY;
+    final endY = drawBottom ? size.height : pillCenterY;
+    if (endY > startY) {
+      canvas.drawLine(Offset(railX, startY), Offset(railX, endY), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _TimelineRailPainter oldDelegate) {
+    return oldDelegate.railX != railX ||
+        oldDelegate.pillCenterY != pillCenterY ||
+        oldDelegate.drawTop != drawTop ||
+        oldDelegate.drawBottom != drawBottom ||
+        oldDelegate.color != color ||
+        oldDelegate.strokeWidth != strokeWidth;
+  }
+}
+
+class _HourTotalsRow extends StatelessWidget {
+  const _HourTotalsRow({
+    required this.kcal,
+    required this.proteinG,
+    required this.fatG,
+    required this.carbsG,
+  });
+
+  final double kcal;
+  final double proteinG;
+  final double fatG;
+  final double carbsG;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _HourTotalChip(
+          value: '${kcal.round()}',
+          badgeChild: const Icon(
+            Icons.local_fire_department,
+            size: 11.5,
+            color: AppColors.calories,
+          ),
+        ),
+        const SizedBox(width: 8),
+        _HourTotalChip(
+          value: '${proteinG.round()}',
+          badgeChild: const Text(
+            'P',
+            style: TextStyle(
+              fontSize: 9.5,
+              fontWeight: FontWeight.w800,
+              color: AppColors.protein,
+              height: 1.0,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        _HourTotalChip(
+          value: '${fatG.round()}',
+          badgeChild: const Text(
+            'L',
+            style: TextStyle(
+              fontSize: 9.5,
+              fontWeight: FontWeight.w800,
+              color: AppColors.fat,
+              height: 1.0,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        _HourTotalChip(
+          value: '${carbsG.round()}',
+          badgeChild: const Text(
+            'G',
+            style: TextStyle(
+              fontSize: 9.5,
+              fontWeight: FontWeight.w800,
+              color: AppColors.carbs,
+              height: 1.0,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HourTotalChip extends StatelessWidget {
+  const _HourTotalChip({
+    required this.value,
+    required this.badgeChild,
+  });
+
+  final String value;
+  final Widget badgeChild;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          value,
+          style: AppTheme.numericStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        const SizedBox(width: 3.5),
+        Container(
+          width: 18,
+          height: 18,
+          alignment: Alignment.center,
+          decoration: const BoxDecoration(
+            color: Color(0xFF23252C),
+            shape: BoxShape.circle,
+          ),
+          child: badgeChild,
+        ),
+      ],
     );
   }
 }

@@ -142,12 +142,15 @@ class FoodCategoryResolver {
       return const FoodCategoryStyle(emoji: '🍲', tintColor: Color(0xFF22D3EE));
     }
 
-    // Special disambiguations that must precede generic butter/pasta/fruit rules
+    // Special disambiguations that must precede generic butter/condiment/fruit rules
     if (_hasPrefix(combined, ['beurre de cacahuete', 'beurre d amande', 'beurre de noisette', 'puree d amande', 'puree de cacahuete'])) {
       return const FoodCategoryStyle(emoji: '🥜', tintColor: Color(0xFFB45309));
     }
     if (_hasPrefix(combined, ['pate a tartiner', 'nutella'])) {
       return const FoodCategoryStyle(emoji: '🍫', tintColor: Color(0xFFEC4899));
+    }
+    if (_hasWord(combined, ['chip', 'chips'])) {
+      return const FoodCategoryStyle(emoji: '🥔', tintColor: Color(0xFFF59E0B));
     }
 
     // 2. Whey / Protein powder / Shaker / Protein bars
@@ -170,31 +173,10 @@ class FoodCategoryResolver {
       );
     }
 
-    // 3. Sauces & Condiments
-    if (_hasPrefix(combined, [
-      'sauce',
-      'ketchup',
-      'mayo',
-      'mayonnaise',
-      'moutarde',
-      'barbecue',
-      'vinaigrette',
-      'vinaigre',
-      'pesto',
-      'harissa',
-      'sriracha',
-      'bouillon',
-      'epice',
-      'poivre',
-      'curry',
-      'paprika',
-      'cumin',
-      'tabasco',
-    ]) || _hasWord(combined, ['bbq', 'soja', 'sel'])) {
-      return const FoodCategoryStyle(emoji: '🥫', tintColor: Color(0xFFF97316));
+    // 3. Caramel & Oils/Fats (evaluated before condiments so 'caramel au beurre sale' / 'beurre demi-sel' match cleanly)
+    if (_hasPrefix(combined, ['caramel'])) {
+      return const FoodCategoryStyle(emoji: '🍬', tintColor: Color(0xFFEC4899));
     }
-
-    // 4. Oils & Fats
     if (_hasPrefix(combined, ['huile', 'colza', 'tournesol']) ||
         _hasWord(combined, ['olive', 'olives'])) {
       return const FoodCategoryStyle(emoji: '🫒', tintColor: Color(0xFFEAB308));
@@ -209,6 +191,26 @@ class FoodCategoryResolver {
       'creme legere',
     ])) {
       return const FoodCategoryStyle(emoji: '🧈', tintColor: Color(0xFFEAB308));
+    }
+
+    // 4. Sauces & Dressings (pure salt/pepper/spices are evaluated after all food categories)
+    if (_hasPrefix(combined, [
+          'sauce',
+          'ketchup',
+          'mayo',
+          'mayonnaise',
+          'moutarde',
+          'barbecue',
+          'vinaigrette',
+          'vinaigre',
+          'pesto',
+          'harissa',
+          'sriracha',
+          'bouillon',
+          'tabasco',
+        ]) ||
+        _hasWord(combined, ['bbq', 'soja'])) {
+      return const FoodCategoryStyle(emoji: '🥫', tintColor: Color(0xFFF97316));
     }
 
     // 5. Fries & Potatoes
@@ -627,6 +629,19 @@ class FoodCategoryResolver {
       'macadamia',
     ]) || _hasWord(combined, ['noix', 'lin'])) {
       return const FoodCategoryStyle(emoji: '🥜', tintColor: Color(0xFFB45309));
+    }
+
+    // 20. Pure salt, pepper & spices (evaluated after all food categories so
+    // 'chocolat pointe de sel', 'beurre demi-sel', or 'steak au poivre' never match)
+    final isPureSaltOrPepper = normName == 'sel' ||
+        normName.startsWith('sel ') ||
+        normName.startsWith('fleur de sel') ||
+        normName.startsWith('gros sel') ||
+        normName == 'poivre' ||
+        normName.startsWith('poivre ');
+    if (isPureSaltOrPepper ||
+        _hasPrefix(combined, ['epice', 'curry', 'paprika', 'cumin'])) {
+      return const FoodCategoryStyle(emoji: '🥫', tintColor: Color(0xFFF97316));
     }
 
     // 21. Fallback

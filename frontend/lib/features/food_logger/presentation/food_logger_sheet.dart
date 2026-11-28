@@ -28,6 +28,7 @@ Future<void> openFoodLoggerSheet(
   required DateTime targetDate,
   TimeOfDay? initialTime,
   bool openScannerDirectly = false,
+  bool autoFocusSearch = false,
 }) async {
   await showModalBottomSheet<void>(
     context: context,
@@ -44,6 +45,7 @@ Future<void> openFoodLoggerSheet(
       targetDate: targetDate,
       initialTime: initialTime,
       openScannerDirectly: openScannerDirectly,
+      autoFocusSearch: autoFocusSearch,
     ),
   );
 }
@@ -54,11 +56,13 @@ class FoodLoggerSheet extends ConsumerStatefulWidget {
     required this.targetDate,
     this.initialTime,
     this.openScannerDirectly = false,
+    this.autoFocusSearch = false,
   });
 
   final DateTime targetDate;
   final TimeOfDay? initialTime;
   final bool openScannerDirectly;
+  final bool autoFocusSearch;
 
   @override
   ConsumerState<FoodLoggerSheet> createState() => _FoodLoggerSheetState();
@@ -130,6 +134,12 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
       _loadDayCaloriesContext();
       if (widget.openScannerDirectly) {
         _openBarcodeScanner();
+      } else if (widget.autoFocusSearch) {
+        Future<void>.delayed(const Duration(milliseconds: 180), () {
+          if (!mounted || _tabIndex != 0) return;
+          _searchFocusNode.requestFocus();
+          SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+        });
       }
     });
   }
@@ -989,6 +999,7 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
                         child: TextField(
                           controller: _searchController,
                           focusNode: _searchFocusNode,
+                          autofocus: widget.autoFocusSearch && _tabIndex == 0,
                           textInputAction: TextInputAction.search,
                           decoration: InputDecoration(
                             hintText: 'Rechercher un aliment...',

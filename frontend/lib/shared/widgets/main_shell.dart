@@ -88,6 +88,7 @@ class _MainShellState extends ConsumerState<MainShell> {
                     onTap: () => openFoodLoggerSheet(
                       context,
                       targetDate: activeJournalDate,
+                      autoFocusSearch: true,
                     ),
                     borderRadius: BorderRadius.circular(24),
                     child: Container(
