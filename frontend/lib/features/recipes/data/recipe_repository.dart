@@ -116,6 +116,14 @@ class RecipeIngredientDetailModel {
     required this.foodId,
     required this.foodName,
     this.foodBrand,
+    this.brand,
+    this.stores,
+    this.source = 'ciqual',
+    this.category,
+    required this.kcalPer100g,
+    required this.proteinPer100g,
+    required this.fatPer100g,
+    required this.carbsPer100g,
     required this.quantityG,
     required this.kcal,
     required this.proteinG,
@@ -127,23 +135,54 @@ class RecipeIngredientDetailModel {
   final String foodId;
   final String foodName;
   final String? foodBrand;
+  final String? brand;
+  final String? stores;
+  final String source;
+  final String? category;
+  final double kcalPer100g;
+  final double proteinPer100g;
+  final double fatPer100g;
+  final double carbsPer100g;
   final double quantityG;
   final double kcal;
   final double proteinG;
   final double fatG;
   final double carbsG;
 
+  String? get resolvedBrand =>
+      (brand != null && brand!.trim().isNotEmpty) ? brand : foodBrand;
+
   factory RecipeIngredientDetailModel.fromJson(Map<String, dynamic> json) {
+    final qty = (json['quantity_g'] as num).toDouble();
+    final kcal = (json['kcal'] as num).toDouble();
+    final p = (json['protein_g'] as num).toDouble();
+    final f = (json['fat_g'] as num).toDouble();
+    final c = (json['carbs_g'] as num).toDouble();
+    final invFactor = qty > 0 ? 100.0 / qty : 0.0;
+    final brandStr =
+        (json['brand'] as String?) ?? (json['food_brand'] as String?);
     return RecipeIngredientDetailModel(
       id: json['id'] as String,
       foodId: json['food_id'] as String,
       foodName: json['food_name'] as String,
       foodBrand: json['food_brand'] as String?,
-      quantityG: (json['quantity_g'] as num).toDouble(),
-      kcal: (json['kcal'] as num).toDouble(),
-      proteinG: (json['protein_g'] as num).toDouble(),
-      fatG: (json['fat_g'] as num).toDouble(),
-      carbsG: (json['carbs_g'] as num).toDouble(),
+      brand: brandStr,
+      stores: json['stores'] as String?,
+      source: (json['source'] as String?) ?? 'ciqual',
+      category: json['category'] as String?,
+      kcalPer100g:
+          (json['kcal_per_100g'] as num?)?.toDouble() ?? (kcal * invFactor),
+      proteinPer100g:
+          (json['protein_per_100g'] as num?)?.toDouble() ?? (p * invFactor),
+      fatPer100g:
+          (json['fat_per_100g'] as num?)?.toDouble() ?? (f * invFactor),
+      carbsPer100g:
+          (json['carbs_per_100g'] as num?)?.toDouble() ?? (c * invFactor),
+      quantityG: qty,
+      kcal: kcal,
+      proteinG: p,
+      fatG: f,
+      carbsG: c,
     );
   }
 }

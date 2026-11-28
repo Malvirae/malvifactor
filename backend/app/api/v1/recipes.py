@@ -7,14 +7,13 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
-from app.models.food import Food, Recipe, RecipeIngredient
+from app.models.food import Food, FoodSource, Recipe, RecipeIngredient
 from app.models.user import User
 from app.schemas.recipe import (
     RecipeCreate,
     RecipeIngredientDetail,
     RecipeIngredientInput,
     RecipeResponse,
-    RecipeSummary,
     RecipeUpdate,
 )
 
@@ -78,12 +77,25 @@ def _serialize_recipe(recipe: Recipe) -> RecipeResponse:
     ingredients_detail: list[RecipeIngredientDetail] = []
     for ing in recipe.ingredients:
         factor = ing.quantity_g / 100.0
+        food_source = (
+            "openfoodfacts"
+            if ing.food.source == FoodSource.OFF
+            else ing.food.source.value
+        )
         ingredients_detail.append(
             RecipeIngredientDetail(
                 id=ing.id,
                 food_id=ing.food_id,
                 food_name=ing.food.name,
                 food_brand=ing.food.brand,
+                brand=ing.food.brand,
+                stores=ing.food.stores,
+                source=food_source,
+                category=None,
+                kcal_per_100g=ing.food.kcal_per_100g,
+                protein_per_100g=ing.food.protein_per_100g,
+                fat_per_100g=ing.food.fat_per_100g,
+                carbs_per_100g=ing.food.carbs_per_100g,
                 quantity_g=ing.quantity_g,
                 kcal=round(ing.food.kcal_per_100g * factor, 2),
                 protein_g=round(ing.food.protein_per_100g * factor, 2),
@@ -175,24 +187,31 @@ async def create_recipe(
     return _serialize_recipe(created)
 
 
-@router.get("", response_model=list[RecipeSummary])
+@router.get("", response_model=list[RecipeResponse])
 async def list_recipes(
     q: str = Query(default="", description="Optional search filter on recipe name"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list[Recipe]:
-    """List personal and shared recipes."""
-    stmt = select(Recipe).where(
-        or_(
-            Recipe.created_by_user_id == current_user.id,
-            Recipe.is_shared.is_(True),
+) -> list[RecipeResponse]:
+    """List personal and shared recipes with eager-loaded ingredient metadata."""
+    stmt = (
+        select(Recipe)
+        .options(
+            selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food)
+        )
+        .where(
+            or_(
+                Recipe.created_by_user_id == current_user.id,
+                Recipe.is_shared.is_(True),
+            )
         )
     )
     if q.strip():
         stmt = stmt.where(Recipe.name.ilike(f"%{q.strip()}%"))
     stmt = stmt.order_by(Recipe.name.asc())
     result = await db.execute(stmt)
-    return list(result.scalars().all())
+    recipes = list(result.scalars().all())
+    return [_serialize_recipe(r) for r in recipes]
 
 
 @router.get("/{recipe_id}", response_model=RecipeResponse)

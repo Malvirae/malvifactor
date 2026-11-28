@@ -12,12 +12,20 @@ class RecipeIngredientInput(BaseModel):
 
 
 class RecipeIngredientDetail(BaseModel):
-    """Detailed ingredient with computed macros for its quantity."""
+    """Detailed ingredient with linked food metadata and computed macros."""
 
     id: UUID
     food_id: UUID
     food_name: str
-    food_brand: str | None
+    food_brand: str | None = None
+    brand: str | None = None
+    stores: str | None = None
+    source: str = "ciqual"
+    category: str | None = None
+    kcal_per_100g: float
+    protein_per_100g: float
+    fat_per_100g: float
+    carbs_per_100g: float
     quantity_g: float
     kcal: float
     protein_g: float

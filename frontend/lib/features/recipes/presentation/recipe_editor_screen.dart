@@ -74,19 +74,20 @@ class _RecipeEditorScreenState extends ConsumerState<RecipeEditorScreen> {
 
       _ingredients.clear();
       for (final ing in detail.ingredients) {
-        final factor = ing.quantityG > 0 ? 100.0 / ing.quantityG : 0.0;
         _ingredients.add(
           _DraftIngredient(
             food: FoodModel(
               id: ing.foodId,
-              source: 'ciqual',
+              source: ing.source,
+              category: ing.category,
               name: ing.foodName,
-              brand: ing.foodBrand,
+              brand: ing.resolvedBrand,
+              stores: ing.stores,
               servingSizeG: 100,
-              kcalPer100g: ing.kcal * factor,
-              proteinPer100g: ing.proteinG * factor,
-              fatPer100g: ing.fatG * factor,
-              carbsPer100g: ing.carbsG * factor,
+              kcalPer100g: ing.kcalPer100g,
+              proteinPer100g: ing.proteinPer100g,
+              fatPer100g: ing.fatPer100g,
+              carbsPer100g: ing.carbsPer100g,
               fiberPer100g: 0,
             ),
             quantityG: ing.quantityG,
@@ -120,6 +121,26 @@ class _RecipeEditorScreenState extends ConsumerState<RecipeEditorScreen> {
     );
     if (result != null) {
       setState(() => _ingredients.add(result));
+    }
+  }
+
+  Future<void> _editIngredientQuantityModal(int index) async {
+    final current = _ingredients[index];
+    final updatedQty = await showModalBottomSheet<double>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (_) => _IngredientQuantityEditSheet(ingredient: current),
+    );
+    if (updatedQty != null && updatedQty > 0 && mounted) {
+      setState(() {
+        _ingredients[index].quantityG = updatedQty;
+      });
     }
   }
 
@@ -485,56 +506,35 @@ class _RecipeEditorScreenState extends ConsumerState<RecipeEditorScreen> {
                       ),
                     )
                   else
-                    ..._ingredients.asMap().entries.map((entry) {
-                      final idx = entry.key;
-                      final ing = entry.value;
-                      final factor = ing.quantityG / 100.0;
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Card(
-                          child: ListTile(
-                            leading: FoodCategoryAvatar(
-                              name: ing.food.name,
-                              source: ing.food.source,
-                              category: ing.food.category,
-                              size: 38,
-                              borderRadius: 10,
-                            ),
-                            title: Text(
-                              ing.food.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
+                    Container(
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Column(
+                        children: [
+                          for (var idx = 0;
+                              idx < _ingredients.length;
+                              idx++) ...[
+                            if (idx > 0)
+                              const Divider(
+                                height: 1,
+                                thickness: 0.6,
+                                color: Colors.white10,
                               ),
+                            _CompactIngredientRow(
+                              ingredient: _ingredients[idx],
+                              onTapEdit: () =>
+                                  _editIngredientQuantityModal(idx),
+                              onDelete: () =>
+                                  setState(() => _ingredients.removeAt(idx)),
                             ),
-                            subtitle: Padding(
-                              padding: const EdgeInsets.only(top: 3),
-                              child: ColoredMacroInlineRow(
-                                kcal: ing.food.kcalPer100g * factor,
-                                proteinG: ing.food.proteinPer100g * factor,
-                                fatG: ing.food.fatPer100g * factor,
-                                carbsG: ing.food.carbsPer100g * factor,
-                                suffix: ' • ${formatGramsText(ing.quantityG)}',
-                                fontSize: 12,
-                                macroDecimals: 0,
-                              ),
-                            ),
-                            trailing: IconButton(
-                              icon: const Icon(
-                                LucideIcons.trash2,
-                                size: 18,
-                                color: AppColors.error,
-                              ),
-                              onPressed: () {
-                                setState(() => _ingredients.removeAt(idx));
-                              },
-                            ),
-                          ),
-                        ),
-                      );
-                    }),
+                          ],
+                        ],
+                      ),
+                    ),
                   const SizedBox(height: 18),
                   ElevatedButton(
                     onPressed: _isSaving ? null : _save,
@@ -1048,10 +1048,19 @@ class _IngredientPickerSheetState
     final previewF = food.fatPer100g * factor;
     final previewC = food.carbsPer100g * factor;
 
-    final metaParts = <String>[
-      if (food.brand != null && food.brand!.isNotEmpty) food.brand!,
-      if (food.stores != null && food.stores!.isNotEmpty) food.stores!,
-    ];
+    final metaSubtitle = buildJournalFoodMetaSubtitle(
+      name: food.name,
+      brand: food.brand,
+      stores: food.stores,
+      source: food.source,
+    );
+
+    void submitAdd() {
+      if (qty <= 0) return;
+      Navigator.of(context).pop(
+        _DraftIngredient(food: food, quantityG: qty),
+      );
+    }
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -1097,13 +1106,15 @@ class _IngredientPickerSheetState
                       FoodSourceBadge(source: food.source),
                     ],
                   ),
-                  if (metaParts.isNotEmpty) ...[
+                  if (metaSubtitle != null) ...[
                     const SizedBox(height: 3),
                     Text(
-                      metaParts.join(' · '),
+                      metaSubtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 12.5,
-                        color: AppColors.textSecondary,
+                        color: Color(0xFF94A3B8),
                       ),
                     ),
                   ],
@@ -1117,6 +1128,7 @@ class _IngredientPickerSheetState
           controller: _qtyController,
           focusNode: _qtyFocusNode,
           autofocus: true,
+          textInputAction: TextInputAction.done,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           style: AppTheme.numericStyle(
             fontSize: 20,
@@ -1127,6 +1139,7 @@ class _IngredientPickerSheetState
             suffixText: 'g',
           ),
           onChanged: (_) => setState(() {}),
+          onSubmitted: (_) => submitAdd(),
         ),
         const SizedBox(height: 12),
         Container(
@@ -1168,16 +1181,343 @@ class _IngredientPickerSheetState
         ),
         const SizedBox(height: 16),
         ElevatedButton(
-          onPressed: qty > 0
-              ? () {
-                  Navigator.of(context).pop(
-                    _DraftIngredient(food: food, quantityG: qty),
-                  );
-                }
-              : null,
+          onPressed: qty > 0 ? submitAdd : null,
           child: const Text('Ajouter l’ingrédient'),
         ),
       ],
+    );
+  }
+}
+
+class _CompactIngredientRow extends StatelessWidget {
+  const _CompactIngredientRow({
+    required this.ingredient,
+    required this.onTapEdit,
+    required this.onDelete,
+  });
+
+  final _DraftIngredient ingredient;
+  final VoidCallback onTapEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final food = ingredient.food;
+    final factor = ingredient.quantityG / 100.0;
+    final metaSubtitle = buildJournalFoodMetaSubtitle(
+      name: food.name,
+      brand: food.brand,
+      stores: food.stores,
+      source: food.source,
+    );
+
+    return InkWell(
+      onTap: onTapEdit,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6.5),
+        child: Row(
+          children: [
+            FoodCategoryAvatar(
+              name: food.name,
+              source: food.source,
+              category: food.category,
+              size: 32,
+              borderRadius: 9,
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    food.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                      height: 1.15,
+                    ),
+                  ),
+                  if (metaSubtitle != null) ...[
+                    const SizedBox(height: 1),
+                    Text(
+                      metaSubtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF94A3B8),
+                        height: 1.15,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 3),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: ColoredMacroInlineRow(
+                      kcal: food.kcalPer100g * factor,
+                      proteinG: food.proteinPer100g * factor,
+                      fatG: food.fatPer100g * factor,
+                      carbsG: food.carbsPer100g * factor,
+                      suffix: ' · ${formatGramsText(ingredient.quantityG)}',
+                      fontSize: 11.5,
+                      macroDecimals: 0,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 4),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.all(4),
+              constraints: const BoxConstraints(),
+              tooltip: 'Modifier la quantité',
+              onPressed: onTapEdit,
+              icon: const Icon(
+                Icons.edit_outlined,
+                size: 16,
+                color: AppColors.textMuted,
+              ),
+            ),
+            const SizedBox(width: 2),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.all(4),
+              constraints: const BoxConstraints(),
+              tooltip: 'Supprimer',
+              onPressed: onDelete,
+              icon: Icon(
+                Icons.delete_outline,
+                size: 17,
+                color: AppColors.error.withValues(alpha: 0.85),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _IngredientQuantityEditSheet extends StatefulWidget {
+  const _IngredientQuantityEditSheet({required this.ingredient});
+
+  final _DraftIngredient ingredient;
+
+  @override
+  State<_IngredientQuantityEditSheet> createState() =>
+      _IngredientQuantityEditSheetState();
+}
+
+class _IngredientQuantityEditSheetState
+    extends State<_IngredientQuantityEditSheet> {
+  late final TextEditingController _qtyController;
+  final FocusNode _qtyFocusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    final initialQty = widget.ingredient.quantityG;
+    final formatted = initialQty % 1 == 0
+        ? initialQty.round().toString()
+        : initialQty.toStringAsFixed(1);
+    _qtyController = TextEditingController(text: formatted);
+
+    void selectAll() {
+      if (!mounted || _qtyController.text.isEmpty) return;
+      _qtyController.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _qtyController.text.length,
+      );
+    }
+
+    _qtyFocusNode.addListener(() {
+      if (_qtyFocusNode.hasFocus) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => selectAll());
+      }
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _qtyFocusNode.requestFocus();
+      selectAll();
+    });
+  }
+
+  @override
+  void dispose() {
+    _qtyController.dispose();
+    _qtyFocusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final food = widget.ingredient.food;
+    final qty =
+        double.tryParse(_qtyController.text.trim().replaceAll(',', '.')) ?? 0.0;
+    final factor = qty > 0 ? qty / 100.0 : 0.0;
+    final previewKcal = food.kcalPer100g * factor;
+    final previewP = food.proteinPer100g * factor;
+    final previewF = food.fatPer100g * factor;
+    final previewC = food.carbsPer100g * factor;
+
+    final metaSubtitle = buildJournalFoodMetaSubtitle(
+      name: food.name,
+      brand: food.brand,
+      stores: food.stores,
+      source: food.source,
+    );
+
+    void submit() {
+      if (qty <= 0) return;
+      Navigator.of(context).pop(qty);
+    }
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          16,
+          12,
+          16,
+          MediaQuery.of(context).viewInsets.bottom + 16,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 38,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                FoodCategoryAvatar(
+                  name: food.name,
+                  source: food.source,
+                  category: food.category,
+                  size: 36,
+                  borderRadius: 10,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              food.name,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 16.5,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          FoodSourceBadge(source: food.source),
+                        ],
+                      ),
+                      if (metaSubtitle != null) ...[
+                        const SizedBox(height: 2.5),
+                        Text(
+                          metaSubtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            color: Color(0xFF94A3B8),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _qtyController,
+              focusNode: _qtyFocusNode,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              style: AppTheme.numericStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Quantité (g)',
+                suffixText: 'g',
+              ),
+              onChanged: (_) => setState(() {}),
+              onSubmitted: (_) => submit(),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceElevated,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _MacroPreviewChip(
+                    label: 'Calories',
+                    value: '${previewKcal.round()}',
+                    unit: 'kcal',
+                    color: AppColors.calories,
+                  ),
+                  _MacroPreviewChip(
+                    label: 'Protéines',
+                    value: '${previewP.round()}',
+                    unit: 'g',
+                    color: AppColors.protein,
+                  ),
+                  _MacroPreviewChip(
+                    label: 'Lipides',
+                    value: '${previewF.round()}',
+                    unit: 'g',
+                    color: AppColors.fat,
+                  ),
+                  _MacroPreviewChip(
+                    label: 'Glucides',
+                    value: '${previewC.round()}',
+                    unit: 'g',
+                    color: AppColors.carbs,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: qty > 0 ? submit : null,
+              child: const Text('Mettre à jour'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
