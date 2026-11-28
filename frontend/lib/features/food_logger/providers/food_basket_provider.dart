@@ -201,11 +201,15 @@ class FoodBasketNotifier extends StateNotifier<FoodBasketState> {
         ? quantityG
         : food.defaultQuantityG;
     final factor = qty / 100.0;
+    final isRecipe = food.source == 'recipe';
     addItem(
       BasketItem(
         localId: _nextId(),
-        itemType: food.source == 'custom' ? 'custom' : 'standard',
-        foodId: food.id,
+        itemType: isRecipe
+            ? 'recipe'
+            : (food.source == 'custom' ? 'custom' : 'standard'),
+        foodId: isRecipe ? null : food.id,
+        recipeId: isRecipe ? food.id : null,
         name: food.name,
         brand: food.brand,
         quantityG: qty,

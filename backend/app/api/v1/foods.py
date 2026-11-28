@@ -18,7 +18,12 @@ from app.schemas.food import (
     FoodSuggestionsResponse,
     FoodUpdate,
 )
-from app.services.openfoodfacts import get_or_fetch_food_by_barcode
+from app.services.openfoodfacts import (
+    get_or_fetch_food_by_barcode,
+    normalize_search_text,
+    search_openfoodfacts_products,
+    tokenize_search_query,
+)
 
 router = APIRouter(prefix="/foods", tags=["foods"])
 
@@ -210,6 +215,7 @@ async def get_food_suggestions(
                 source=food.source.value,
                 name=food.name,
                 brand=food.brand,
+                stores=food.stores,
                 serving_size_g=food.serving_size_g,
                 serving_label=food.serving_label,
                 kcal_per_100g=food.kcal_per_100g,
@@ -280,12 +286,12 @@ async def get_food_suggestions(
 
 @router.get("/search", response_model=list[FoodResponse])
 async def search_foods(
-    q: str = Query(default="", description="Search query (food name or brand)"),
-    limit: int = Query(default=20, ge=1, le=100),
+    q: str = Query(default="", description="Search query (food name, brand, or store)"),
+    limit: int = Query(default=30, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[FoodResponse]:
-    """Search foods using multi-term ILIKE + pg_trgm similarity, or return recent foods."""
+    """Search Ciqual, custom foods, recipes, and OpenFoodFacts using multi-token accent-insensitive matching."""
     query_text = q.strip()
     visibility = _visibility_filter(current_user.id)
 
@@ -322,12 +328,19 @@ async def search_foods(
             foods.extend(fallback_res.scalars().all())
         return await _attach_last_quantities(db, current_user.id, foods)
 
-    terms = [term for term in query_text.split() if term]
-    term_filters = [
-        or_(Food.name.ilike(f"%{term}%"), Food.brand.ilike(f"%{term}%"))
-        for term in terms
-    ]
+    tokens = tokenize_search_query(query_text)
+    if not tokens:
+        return []
 
+    # 1. Local Food search (Ciqual, custom, cached OFF) across name, brand, stores
+    token_filters = [
+        or_(
+            func.unaccent(Food.name).ilike(f"%{token}%"),
+            func.unaccent(func.coalesce(Food.brand, "")).ilike(f"%{token}%"),
+            func.unaccent(func.coalesce(Food.stores, "")).ilike(f"%{token}%"),
+        )
+        for token in tokens
+    ]
     custom_priority = case(
         (
             and_(
@@ -338,21 +351,209 @@ async def search_foods(
         ),
         else_=1,
     )
-
-    stmt = (
+    local_stmt = (
         select(Food)
-        .where(visibility, and_(*term_filters))
+        .where(visibility, and_(*token_filters))
         .order_by(
             custom_priority.asc(),
             func.similarity(Food.name, query_text).desc(),
             Food.name.asc(),
         )
-        .limit(limit)
+        .limit(45)
     )
-    result = await db.execute(stmt)
-    return await _attach_last_quantities(
-        db, current_user.id, list(result.scalars().all())
+    local_res = await db.execute(local_stmt)
+    local_foods = list(local_res.scalars().all())
+
+    # 2. Local accessible Recipes search
+    recipe_filters = [
+        or_(
+            func.unaccent(Recipe.name).ilike(f"%{token}%"),
+            func.unaccent(func.coalesce(Recipe.description, "")).ilike(f"%{token}%"),
+        )
+        for token in tokens
+    ]
+    recipe_stmt = (
+        select(Recipe)
+        .where(
+            or_(
+                Recipe.created_by_user_id == current_user.id,
+                Recipe.is_shared.is_(True),
+            ),
+            and_(*recipe_filters),
+        )
+        .order_by(Recipe.name.asc())
+        .limit(15)
     )
+    recipe_res = await db.execute(recipe_stmt)
+    matched_recipes = list(recipe_res.scalars().all())
+
+    # 3. Live French OpenFoodFacts search + DB cache upsert
+    off_foods = await search_openfoodfacts_products(
+        db,
+        query=query_text,
+        tokens=tokens,
+        limit=25,
+    )
+
+    # 4. Merge deduplicating foods by id and (source, external_id)
+    merged_foods: list[Food] = []
+    seen_food_ids: set[UUID] = set()
+    seen_external: set[tuple[str, str]] = set()
+    for food in [*local_foods, *off_foods]:
+        if food.id in seen_food_ids:
+            continue
+        ext_key = (food.source.value, food.external_id) if food.external_id else None
+        if ext_key is not None and ext_key in seen_external:
+            continue
+        seen_food_ids.add(food.id)
+        if ext_key is not None:
+            seen_external.add(ext_key)
+        merged_foods.append(food)
+
+    # 5. Fetch personal log frequency & last_quantity_g for foods and recipes
+    food_ids = [f.id for f in merged_foods]
+    recipe_ids = [r.id for r in matched_recipes]
+
+    food_counts: dict[UUID, int] = {}
+    food_last_qty: dict[UUID, float] = {}
+    if food_ids:
+        cnt_res = await db.execute(
+            select(FoodLog.food_id, func.count(FoodLog.id))
+            .where(FoodLog.user_id == current_user.id, FoodLog.food_id.in_(food_ids))
+            .group_by(FoodLog.food_id)
+        )
+        food_counts = {row[0]: int(row[1]) for row in cnt_res.all() if row[0] is not None}
+
+        qty_res = await db.execute(
+            select(FoodLog.food_id, FoodLog.quantity_g)
+            .distinct(FoodLog.food_id)
+            .where(FoodLog.user_id == current_user.id, FoodLog.food_id.in_(food_ids))
+            .order_by(
+                FoodLog.food_id,
+                FoodLog.logged_date.desc(),
+                FoodLog.logged_time.desc(),
+                FoodLog.created_at.desc(),
+            )
+        )
+        food_last_qty = {
+            row[0]: float(row[1])
+            for row in qty_res.all()
+            if row[0] is not None and row[1] is not None
+        }
+
+    recipe_counts: dict[UUID, int] = {}
+    recipe_last_qty: dict[UUID, float] = {}
+    if recipe_ids:
+        rcnt_res = await db.execute(
+            select(FoodLog.recipe_id, func.count(FoodLog.id))
+            .where(FoodLog.user_id == current_user.id, FoodLog.recipe_id.in_(recipe_ids))
+            .group_by(FoodLog.recipe_id)
+        )
+        recipe_counts = {row[0]: int(row[1]) for row in rcnt_res.all() if row[0] is not None}
+
+        rqty_res = await db.execute(
+            select(FoodLog.recipe_id, FoodLog.quantity_g)
+            .distinct(FoodLog.recipe_id)
+            .where(FoodLog.user_id == current_user.id, FoodLog.recipe_id.in_(recipe_ids))
+            .order_by(
+                FoodLog.recipe_id,
+                FoodLog.logged_date.desc(),
+                FoodLog.logged_time.desc(),
+                FoodLog.created_at.desc(),
+            )
+        )
+        recipe_last_qty = {
+            row[0]: float(row[1])
+            for row in rqty_res.all()
+            if row[0] is not None and row[1] is not None
+        }
+
+    norm_query = normalize_search_text(query_text)
+    scored_responses: list[tuple[float, str, FoodResponse]] = []
+
+    for food in merged_foods:
+        norm_name = normalize_search_text(food.name)
+        norm_brand = normalize_search_text(food.brand)
+        norm_stores = normalize_search_text(food.stores)
+        combined = f"{norm_name} {norm_brand} {norm_stores}".strip()
+
+        score = 0.0
+        if norm_name == norm_query:
+            score += 120.0
+        elif norm_name.startswith(norm_query):
+            score += 70.0
+        elif norm_query in norm_name:
+            score += 35.0
+
+        matched_tokens = sum(1 for t in tokens if t in combined)
+        score += matched_tokens * 18.0
+        if matched_tokens == len(tokens):
+            score += 45.0
+
+        name_matches = sum(1 for t in tokens if t in norm_name)
+        score += name_matches * 8.0
+
+        if food.source == FoodSource.CUSTOM and food.created_by_user_id == current_user.id:
+            score += 22.0
+        elif food.source == FoodSource.CIQUAL and name_matches == len(tokens):
+            score += 14.0
+
+        usage = food_counts.get(food.id, 0)
+        if usage > 0:
+            score += min(30.0, usage * 5.0)
+
+        resp = FoodResponse.model_validate(food).model_copy(
+            update={"last_quantity_g": food_last_qty.get(food.id)}
+        )
+        scored_responses.append((score, norm_name, resp))
+
+    for recipe in matched_recipes:
+        norm_name = normalize_search_text(recipe.name)
+        norm_desc = normalize_search_text(recipe.description)
+        combined = f"{norm_name} {norm_desc}".strip()
+
+        score = 20.0
+        if norm_name == norm_query:
+            score += 120.0
+        elif norm_name.startswith(norm_query):
+            score += 70.0
+        elif norm_query in norm_name:
+            score += 35.0
+
+        matched_tokens = sum(1 for t in tokens if t in combined)
+        score += matched_tokens * 18.0
+        if matched_tokens == len(tokens):
+            score += 45.0
+
+        usage = recipe_counts.get(recipe.id, 0)
+        if usage > 0:
+            score += min(30.0, usage * 5.0)
+
+        default_serving = round(
+            recipe.total_weight_g / max(recipe.servings_count, 1.0), 1
+        )
+        resp = FoodResponse(
+            id=recipe.id,
+            source="recipe",
+            external_id=None,
+            name=recipe.name,
+            brand=None,
+            stores=None,
+            serving_size_g=default_serving,
+            serving_label="1 portion",
+            kcal_per_100g=recipe.kcal_per_100g,
+            protein_per_100g=recipe.protein_per_100g,
+            fat_per_100g=recipe.fat_per_100g,
+            carbs_per_100g=recipe.carbs_per_100g,
+            fiber_per_100g=0.0,
+            created_by_user_id=recipe.created_by_user_id,
+            created_at=recipe.created_at,
+            last_quantity_g=recipe_last_qty.get(recipe.id),
+        )
+        scored_responses.append((score, norm_name, resp))
+
+    scored_responses.sort(key=lambda item: (-item[0], len(item[1]), item[1]))
+    return [item[2] for item in scored_responses[:limit]]
 
 
 @router.get("/custom", response_model=list[FoodResponse])
@@ -395,6 +596,7 @@ async def create_custom_food(
         external_id=payload.external_id.strip() if payload.external_id else None,
         name=payload.name.strip(),
         brand=payload.brand.strip() if payload.brand else None,
+        stores=payload.stores.strip() if payload.stores else None,
         serving_size_g=payload.serving_size_g,
         serving_label=payload.serving_label.strip() if payload.serving_label else None,
         kcal_per_100g=payload.kcal_per_100g,
@@ -497,6 +699,11 @@ async def customize_food(
             payload.brand.strip() or None
             if payload.brand is not None
             else food.brand
+        ),
+        stores=(
+            payload.stores.strip() or None
+            if payload.stores is not None
+            else food.stores
         ),
         serving_size_g=(
             payload.serving_size_g

@@ -27,6 +27,7 @@ Future<void> openFoodLoggerSheet(
 }) async {
   await showModalBottomSheet<void>(
     context: context,
+    useRootNavigator: true,
     isScrollControlled: true,
     useSafeArea: true,
     isDismissible: false,
@@ -75,6 +76,7 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
 
   Timer? _debounce;
   int _tabIndex = 0; // 0: Recherche, 1: Recettes, 2: Ajout libre
+  _SearchSourceFilter _sourceFilter = _SearchSourceFilter.all;
   List<FoodModel> _searchResults = const [];
   bool _loadingSearch = false;
   bool _submittingQuick = false;
@@ -994,51 +996,135 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
   }) {
     final query = _searchController.text.trim();
     if (query.isNotEmpty) {
-      if (_loadingSearch) {
-        return const Center(
-          child: CircularProgressIndicator(color: AppColors.calories),
-        );
-      }
-      if (_searchResults.isEmpty) {
-        return const Center(
-          child: Text(
-            'Aucun aliment trouvé pour cette recherche.',
-            style: TextStyle(color: AppColors.textSecondary),
-          ),
-        );
-      }
-      return ListView.separated(
-        padding: const EdgeInsets.only(bottom: 12),
-        itemCount: _searchResults.length,
-        separatorBuilder: (_, __) => const Divider(),
-        itemBuilder: (context, index) {
-          final food = _searchResults[index];
-          final qty = food.defaultQuantityG;
-          final factor = qty / 100.0;
-          final count = basket.countFor(foodId: food.id);
-          return _MacroFactorFoodRow(
-            name: food.name,
-            brand: food.brand,
-            itemType: food.source == 'custom' ? 'custom' : 'standard',
-            quantityG: qty,
-            kcal: food.kcalPer100g * factor,
-            proteinG: food.proteinPer100g * factor,
-            fatG: food.fatPer100g * factor,
-            carbsG: food.carbsPer100g * factor,
-            basketCount: count,
-            onQuickAdd: () {
-              HapticFeedback.lightImpact();
-              ref.read(foodBasketProvider.notifier).addFood(
-                    food,
-                    quantityG: qty,
-                  );
-            },
-            onTapRow: () => _openQuantitySheet(
-              food: food,
-              initialQuantityG: qty,
+      final filteredResults = _searchResults.where((food) {
+        switch (_sourceFilter) {
+          case _SearchSourceFilter.all:
+            return true;
+          case _SearchSourceFilter.ciqual:
+            return food.source == 'ciqual';
+          case _SearchSourceFilter.off:
+            return food.source == 'off' || food.source == 'openfoodfacts';
+          case _SearchSourceFilter.custom:
+            return food.source == 'custom' || food.source == 'recipe';
+        }
+      }).toList();
+
+      return Column(
+        children: [
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: _SearchSourceFilter.values.map((filter) {
+                final selected = filter == _sourceFilter;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ChoiceChip(
+                    label: Text(filter.label),
+                    selected: selected,
+                    visualDensity: VisualDensity.compact,
+                    showCheckmark: false,
+                    selectedColor: const Color(0xFFF8FAFC),
+                    backgroundColor: AppColors.surfaceElevated,
+                    side: BorderSide(
+                      color: selected
+                          ? const Color(0xFFF8FAFC)
+                          : AppColors.border,
+                    ),
+                    labelStyle: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                      color: selected
+                          ? AppColors.background
+                          : AppColors.textSecondary,
+                    ),
+                    onSelected: (_) => setState(() => _sourceFilter = filter),
+                  ),
+                );
+              }).toList(),
             ),
-          );
-        },
+          ),
+          Expanded(
+            child: _loadingSearch
+                ? const Center(
+                    child: CircularProgressIndicator(color: AppColors.calories),
+                  )
+                : filteredResults.isEmpty
+                    ? Center(
+                        child: Text(
+                          _searchResults.isEmpty
+                              ? 'Aucun aliment trouvé pour cette recherche.'
+                              : 'Aucun résultat dans ce filtre.',
+                          style: const TextStyle(color: AppColors.textSecondary),
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        itemCount: filteredResults.length,
+                        separatorBuilder: (_, __) => const Divider(),
+                        itemBuilder: (context, index) {
+                          final food = filteredResults[index];
+                          final qty = food.defaultQuantityG;
+                          final factor = qty / 100.0;
+                          final isRecipe = food.source == 'recipe';
+                          final count = isRecipe
+                              ? basket.countFor(recipeId: food.id)
+                              : basket.countFor(foodId: food.id);
+                          return _MacroFactorFoodRow(
+                            name: food.name,
+                            brand: food.brand,
+                            stores: food.stores,
+                            source: food.source,
+                            itemType: isRecipe
+                                ? 'recipe'
+                                : (food.source == 'custom'
+                                    ? 'custom'
+                                    : 'standard'),
+                            quantityG: qty,
+                            kcal: food.kcalPer100g * factor,
+                            proteinG: food.proteinPer100g * factor,
+                            fatG: food.fatPer100g * factor,
+                            carbsG: food.carbsPer100g * factor,
+                            basketCount: count,
+                            onQuickAdd: () {
+                              HapticFeedback.lightImpact();
+                              ref
+                                  .read(foodBasketProvider.notifier)
+                                  .addFood(food, quantityG: qty);
+                            },
+                            onTapRow: () async {
+                              if (isRecipe) {
+                                final detail = await ref
+                                    .read(recipeRepositoryProvider)
+                                    .getRecipe(food.id);
+                                if (!mounted) return;
+                                await _openQuantitySheet(
+                                  recipe: RecipeSummaryModel(
+                                    id: detail.id,
+                                    name: detail.name,
+                                    description: detail.description,
+                                    totalWeightG: detail.totalWeightG,
+                                    servingsCount: detail.servingsCount,
+                                    kcalPer100g: detail.kcalPer100g,
+                                    proteinPer100g: detail.proteinPer100g,
+                                    fatPer100g: detail.fatPer100g,
+                                    carbsPer100g: detail.carbsPer100g,
+                                    isShared: detail.isShared,
+                                  ),
+                                  initialQuantityG: qty,
+                                );
+                              } else {
+                                await _openQuantitySheet(
+                                  food: food,
+                                  initialQuantityG: qty,
+                                );
+                              }
+                            },
+                          );
+                        },
+                      ),
+          ),
+        ],
       );
     }
 
@@ -1137,6 +1223,8 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
         _MacroFactorFoodRow(
           name: item.name,
           brand: item.brand,
+          stores: item.stores,
+          source: item.source,
           itemType: item.itemType,
           quantityG: item.lastQuantityG,
           kcal: item.previewKcal,
@@ -1228,6 +1316,8 @@ class _FoodLoggerSheetState extends ConsumerState<FoodLoggerSheet> {
                   return _MacroFactorFoodRow(
                     name: recipe.name,
                     brand: null,
+                    stores: null,
+                    source: 'recipe',
                     itemType: 'recipe',
                     quantityG: defaultQty,
                     kcal: recipe.kcalPer100g * factor,
@@ -1444,10 +1534,87 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
+enum _SearchSourceFilter {
+  all('Tous'),
+  ciqual('Ciqual'),
+  off('OpenFoodFacts'),
+  custom('Perso');
+
+  const _SearchSourceFilter(this.label);
+  final String label;
+}
+
+class _SourceBadge extends StatelessWidget {
+  const _SourceBadge({required this.source});
+
+  final String source;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color bgColor;
+    final Color fgColor;
+    final String label;
+    final IconData? icon;
+
+    switch (source) {
+      case 'ciqual':
+        bgColor = const Color(0xFF10B981).withValues(alpha: 0.15);
+        fgColor = const Color(0xFF34D399);
+        label = 'Ciqual';
+        icon = Icons.verified_rounded;
+      case 'off':
+      case 'openfoodfacts':
+        bgColor = const Color(0xFFF59E0B).withValues(alpha: 0.15);
+        fgColor = const Color(0xFFFBBF24);
+        label = 'OFF';
+        icon = Icons.qr_code_2_rounded;
+      case 'recipe':
+        bgColor = const Color(0xFF22D3EE).withValues(alpha: 0.15);
+        fgColor = const Color(0xFF22D3EE);
+        label = 'Recette';
+        icon = null;
+      default:
+        bgColor = const Color(0xFFA78BFA).withValues(alpha: 0.15);
+        fgColor = const Color(0xFFA78BFA);
+        label = 'Perso';
+        icon = null;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: fgColor.withValues(alpha: 0.55), width: 0.8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 11, color: fgColor),
+            const SizedBox(width: 3),
+          ],
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              color: fgColor,
+              height: 1.1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _MacroFactorFoodRow extends StatelessWidget {
   const _MacroFactorFoodRow({
     required this.name,
     required this.brand,
+    this.stores,
+    required this.source,
     required this.itemType,
     required this.quantityG,
     required this.kcal,
@@ -1462,6 +1629,8 @@ class _MacroFactorFoodRow extends StatelessWidget {
 
   final String name;
   final String? brand;
+  final String? stores;
+  final String source;
   final String itemType;
   final double quantityG;
   final double kcal;
@@ -1477,23 +1646,31 @@ class _MacroFactorFoodRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final IconData icon;
     final Color iconColor;
-    switch (itemType) {
+    switch (source) {
+      case 'ciqual':
+        icon = LucideIcons.leaf;
+        iconColor = const Color(0xFF34D399);
+      case 'off':
+      case 'openfoodfacts':
+        icon = Icons.qr_code_2_rounded;
+        iconColor = const Color(0xFFFBBF24);
       case 'recipe':
         icon = LucideIcons.chefHat;
-        iconColor = AppColors.protein;
-      case 'custom':
-        icon = LucideIcons.bookmark;
-        iconColor = AppColors.calories;
+        iconColor = const Color(0xFF22D3EE);
       default:
-        icon = LucideIcons.utensils;
+        icon = LucideIcons.bookmark;
         iconColor = AppColors.weight;
     }
 
     final qtyLabel = quantityG % 1 == 0
         ? '${quantityG.round()} g'
         : '${quantityG.toStringAsFixed(1)} g';
-    final displayTitle =
-        (brand != null && brand!.isNotEmpty) ? '$name · $brand' : name;
+    final metaParts = <String>[
+      name,
+      if (brand != null && brand!.isNotEmpty) brand!,
+      if (stores != null && stores!.isNotEmpty) stores!,
+    ];
+    final displayTitle = metaParts.join(' · ');
 
     return InkWell(
       onTap: onTapRow,
@@ -1516,15 +1693,23 @@ class _MacroFactorFoodRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    displayTitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          displayTitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      _SourceBadge(source: source),
+                    ],
                   ),
                   const SizedBox(height: 3),
                   FittedBox(

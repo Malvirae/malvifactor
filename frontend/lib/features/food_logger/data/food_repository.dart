@@ -12,6 +12,7 @@ class FoodModel {
     this.externalId,
     required this.name,
     this.brand,
+    this.stores,
     required this.servingSizeG,
     this.servingLabel,
     required this.kcalPer100g,
@@ -27,6 +28,7 @@ class FoodModel {
   final String? externalId;
   final String name;
   final String? brand;
+  final String? stores;
   final double servingSizeG;
   final String? servingLabel;
   final double kcalPer100g;
@@ -47,6 +49,7 @@ class FoodModel {
       externalId: json['external_id'] as String?,
       name: json['name'] as String,
       brand: json['brand'] as String?,
+      stores: json['stores'] as String?,
       servingSizeG: (json['serving_size_g'] as num).toDouble(),
       servingLabel: json['serving_label'] as String?,
       kcalPer100g: (json['kcal_per_100g'] as num).toDouble(),
@@ -66,6 +69,7 @@ class FoodSuggestionItemModel {
     required this.source,
     required this.name,
     this.brand,
+    this.stores,
     required this.servingSizeG,
     this.servingLabel,
     required this.kcalPer100g,
@@ -88,6 +92,7 @@ class FoodSuggestionItemModel {
   final String source; // 'ciqual' | 'off' | 'custom' | 'recipe'
   final String name;
   final String? brand;
+  final String? stores;
   final double servingSizeG;
   final String? servingLabel;
   final double kcalPer100g;
@@ -111,6 +116,7 @@ class FoodSuggestionItemModel {
         source: source,
         name: name,
         brand: brand,
+        stores: stores,
         servingSizeG: servingSizeG,
         servingLabel: servingLabel,
         kcalPer100g: kcalPer100g,
@@ -128,6 +134,7 @@ class FoodSuggestionItemModel {
       source: json['source'] as String,
       name: json['name'] as String,
       brand: json['brand'] as String?,
+      stores: json['stores'] as String?,
       servingSizeG: (json['serving_size_g'] as num).toDouble(),
       servingLabel: json['serving_label'] as String?,
       kcalPer100g: (json['kcal_per_100g'] as num).toDouble(),
@@ -200,7 +207,7 @@ class FoodRepository {
     return FoodSuggestionsResponseModel.fromJson(res.data!);
   }
 
-  Future<List<FoodModel>> searchFoods(String query, {int limit = 25}) async {
+  Future<List<FoodModel>> searchFoods(String query, {int limit = 30}) async {
     final res = await _dio.get<List<dynamic>>(
       '/api/v1/foods/search',
       queryParameters: {'q': query, 'limit': limit},

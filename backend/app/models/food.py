@@ -45,6 +45,7 @@ class Food(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     brand: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    stores: Mapped[str | None] = mapped_column(String(255), nullable=True)
     serving_size_g: Mapped[float] = mapped_column(Float, nullable=False, default=100.0)
     serving_label: Mapped[str | None] = mapped_column(String(100), nullable=True)
 

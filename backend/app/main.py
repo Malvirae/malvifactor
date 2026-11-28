@@ -28,7 +28,14 @@ async def lifespan(_: FastAPI):
                 "ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE;"
             )
         )
+        await conn.execute(
+            text(
+                "ALTER TABLE foods "
+                "ADD COLUMN IF NOT EXISTS stores VARCHAR(255);"
+            )
+        )
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent;"))
         await conn.execute(
             text(
                 "CREATE INDEX IF NOT EXISTS idx_foods_name_trgm "
