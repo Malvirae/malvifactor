@@ -2,8 +2,10 @@ import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
+import 'package:malvifactor/core/config/chart_preferences_provider.dart';
 import 'package:malvifactor/core/theme/app_theme.dart';
 import 'package:malvifactor/features/analytics/presentation/widgets/macro_factor_chart_widgets.dart';
 import 'package:malvifactor/features/analytics/providers/analytics_provider.dart';
@@ -11,18 +13,19 @@ import 'package:malvifactor/features/dashboard/data/dashboard_repository.dart';
 
 enum _GoalWeightMode { raw, trend }
 
-class GoalProgressDetailView extends StatefulWidget {
+class GoalProgressDetailView extends ConsumerStatefulWidget {
   const GoalProgressDetailView({super.key, required this.ctx});
 
   final FullMetricContext ctx;
 
   @override
-  State<GoalProgressDetailView> createState() => _GoalProgressDetailViewState();
+  ConsumerState<GoalProgressDetailView> createState() =>
+      _GoalProgressDetailViewState();
 }
 
-class _GoalProgressDetailViewState extends State<GoalProgressDetailView> {
+class _GoalProgressDetailViewState
+    extends ConsumerState<GoalProgressDetailView> {
   _GoalWeightMode _mode = _GoalWeightMode.trend;
-  AnalyticsRange _range = AnalyticsRange.m1;
 
   double? _pickWeight(AnalyticsPointModel p) {
     if (_mode == _GoalWeightMode.raw) {
@@ -33,6 +36,9 @@ class _GoalProgressDetailViewState extends State<GoalProgressDetailView> {
 
   @override
   Widget build(BuildContext context) {
+    final range = ref
+        .watch(chartPreferencesProvider(PersistedChartType.goalProgress))
+        .range;
     final points = widget.ctx.points;
     final profile = widget.ctx.profile;
     final isTrend = _mode == _GoalWeightMode.trend;
@@ -58,7 +64,7 @@ class _GoalProgressDetailViewState extends State<GoalProgressDetailView> {
     final targetWeight = profile.targetWeightKg ?? fallbackTarget;
     final startWeight = firstHistoryWeight ?? currentWeight ?? targetWeight;
 
-    final windowPoints = sliceOrPadAnalyticsWindow(points, _range);
+    final windowPoints = sliceOrPadAnalyticsWindow(points, range);
 
     // Build delta bars (daily for <= 30d, weekly buckets for > 30d).
     final bars = _buildProgressBars(
@@ -191,8 +197,11 @@ class _GoalProgressDetailViewState extends State<GoalProgressDetailView> {
         ),
         const SizedBox(height: 12),
         PeriodPillsBar(
-          selected: _range,
-          onChanged: (r) => setState(() => _range = r),
+          selected: range,
+          onChanged: (r) => ref
+              .read(chartPreferencesProvider(PersistedChartType.goalProgress)
+                  .notifier)
+              .setRange(r),
         ),
         const SizedBox(height: 12),
 

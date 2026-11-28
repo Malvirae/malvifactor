@@ -3,22 +3,28 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:malvifactor/core/theme/app_theme.dart';
+import 'package:malvifactor/features/analytics/providers/analytics_provider.dart';
 import 'package:malvifactor/features/dashboard/providers/dashboard_provider.dart';
 import 'package:malvifactor/features/food_logger/data/food_repository.dart';
+import 'package:malvifactor/features/food_logger/providers/food_basket_provider.dart';
 import 'package:malvifactor/features/journal/presentation/journal_screen.dart';
 import 'package:malvifactor/features/recipes/data/recipe_repository.dart';
+
+enum QuantitySheetOutcome { addedToBasket, loggedSingle }
 
 class QuantityBottomSheet extends ConsumerStatefulWidget {
   const QuantityBottomSheet({
     super.key,
     required this.targetDate,
     this.initialTime,
+    this.initialQuantityG,
     this.food,
     this.recipe,
   }) : assert(food != null || recipe != null);
 
   final DateTime targetDate;
   final TimeOfDay? initialTime;
+  final double? initialQuantityG;
   final FoodModel? food;
   final RecipeSummaryModel? recipe;
 
@@ -31,6 +37,7 @@ class _QuantityBottomSheetState extends ConsumerState<QuantityBottomSheet> {
   static const List<int> _quickGrams = [30, 50, 100, 150, 200, 250];
 
   late final TextEditingController _qtyController;
+  final FocusNode _qtyFocusNode = FocusNode();
   late TimeOfDay _selectedTime;
   double _quantityG = 100.0;
   bool _isSubmitting = false;
@@ -38,17 +45,33 @@ class _QuantityBottomSheetState extends ConsumerState<QuantityBottomSheet> {
   @override
   void initState() {
     super.initState();
-    final initialQty = widget.food?.servingSizeG ?? 100.0;
+    final initialQty = widget.initialQuantityG ??
+        widget.food?.defaultQuantityG ??
+        100.0;
     _quantityG = initialQty > 0 ? initialQty : 100.0;
     _qtyController = TextEditingController(
       text: _quantityG.toStringAsFixed(_quantityG % 1 == 0 ? 0 : 1),
     );
     _selectedTime = widget.initialTime ?? TimeOfDay.now();
+
+    _qtyFocusNode.addListener(() {
+      if (_qtyFocusNode.hasFocus && _qtyController.text.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_qtyFocusNode.hasFocus && _qtyController.text.isNotEmpty) {
+            _qtyController.selection = TextSelection(
+              baseOffset: 0,
+              extentOffset: _qtyController.text.length,
+            );
+          }
+        });
+      }
+    });
   }
 
   @override
   void dispose() {
     _qtyController.dispose();
+    _qtyFocusNode.dispose();
     super.dispose();
   }
 
@@ -80,7 +103,21 @@ class _QuantityBottomSheetState extends ConsumerState<QuantityBottomSheet> {
     }
   }
 
-  Future<void> _submit() async {
+  void _addToBasket() {
+    if (_quantityG <= 0) return;
+    final notifier = ref.read(foodBasketProvider.notifier);
+    if (_selectedTime.hour != ref.read(foodBasketProvider).targetHour) {
+      notifier.setTargetHour(_selectedTime.hour);
+    }
+    if (widget.food != null) {
+      notifier.addFood(widget.food!, quantityG: _quantityG);
+    } else if (widget.recipe != null) {
+      notifier.addRecipe(widget.recipe!, quantityG: _quantityG);
+    }
+    Navigator.of(context).pop(QuantitySheetOutcome.addedToBasket);
+  }
+
+  Future<void> _submitSingle() async {
     if (_quantityG <= 0) return;
     setState(() => _isSubmitting = true);
     try {
@@ -102,8 +139,10 @@ class _QuantityBottomSheetState extends ConsumerState<QuantityBottomSheet> {
       }
       ref.invalidate(dashboardProvider);
       ref.invalidate(journalDayProvider);
+      ref.invalidate(fullMetricContextProvider);
+      ref.invalidate(foodSuggestionsProvider);
       if (!mounted) return;
-      Navigator.of(context).pop(true);
+      Navigator.of(context).pop(QuantitySheetOutcome.loggedSingle);
     } catch (e) {
       if (!mounted) return;
       setState(() => _isSubmitting = false);
@@ -238,6 +277,7 @@ class _QuantityBottomSheetState extends ConsumerState<QuantityBottomSheet> {
                 flex: 3,
                 child: TextField(
                   controller: _qtyController,
+                  focusNode: _qtyFocusNode,
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
                   style: AppTheme.numericStyle(fontSize: 16),
@@ -275,19 +315,43 @@ class _QuantityBottomSheetState extends ConsumerState<QuantityBottomSheet> {
             ],
           ),
           const SizedBox(height: 18),
-          ElevatedButton.icon(
-            onPressed: _isSubmitting || _quantityG <= 0 ? null : _submit,
-            icon: _isSubmitting
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: AppColors.background,
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed:
+                      _isSubmitting || _quantityG <= 0 ? null : _submitSingle,
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                    side: const BorderSide(color: AppColors.border),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                  )
-                : const Icon(LucideIcons.plus),
-            label: const Text('Ajouter au journal'),
+                  ),
+                  icon: _isSubmitting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.calories,
+                          ),
+                        )
+                      : const Icon(LucideIcons.zap, size: 16),
+                  label: const Text('Logger seul'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 2,
+                child: ElevatedButton.icon(
+                  onPressed:
+                      _isSubmitting || _quantityG <= 0 ? null : _addToBasket,
+                  icon: const Icon(LucideIcons.plus, size: 18),
+                  label: const Text('Ajouter au panier'),
+                ),
+              ),
+            ],
           ),
         ],
       ),

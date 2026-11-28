@@ -2,29 +2,33 @@ import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import 'package:malvifactor/core/config/chart_preferences_provider.dart';
 import 'package:malvifactor/core/theme/app_theme.dart';
 import 'package:malvifactor/features/analytics/presentation/widgets/macro_factor_chart_widgets.dart';
 import 'package:malvifactor/features/analytics/providers/analytics_provider.dart';
 import 'package:malvifactor/features/dashboard/data/dashboard_repository.dart';
 
-class WeightTrendDetailView extends StatefulWidget {
+class WeightTrendDetailView extends ConsumerStatefulWidget {
   const WeightTrendDetailView({super.key, required this.ctx});
 
   final FullMetricContext ctx;
 
   @override
-  State<WeightTrendDetailView> createState() => _WeightTrendDetailViewState();
+  ConsumerState<WeightTrendDetailView> createState() =>
+      _WeightTrendDetailViewState();
 }
 
-class _WeightTrendDetailViewState extends State<WeightTrendDetailView> {
-  AnalyticsRange _range = AnalyticsRange.m1;
-  bool _expandedScale = false;
+class _WeightTrendDetailViewState extends ConsumerState<WeightTrendDetailView> {
   int? _scrubIndex;
 
   @override
   Widget build(BuildContext context) {
+    final pref = ref.watch(chartPreferencesProvider(PersistedChartType.weightTrend));
+    final range = pref.range;
+    final expandedScale = pref.expandedScale;
     final points = widget.ctx.points;
     if (points.isEmpty) {
       return const Center(
@@ -39,7 +43,7 @@ class _WeightTrendDetailViewState extends State<WeightTrendDetailView> {
     }
 
     final series = _buildDailyTrendSeries(points);
-    final windowPoints = sliceOrPadAnalyticsWindow(points, _range);
+    final windowPoints = sliceOrPadAnalyticsWindow(points, range);
     final windowCount = windowPoints.length;
     final offset = windowCount - points.length;
 
@@ -85,7 +89,7 @@ class _WeightTrendDetailViewState extends State<WeightTrendDetailView> {
     }
 
     final activeYPool =
-        _expandedScale && allHistoryY.isNotEmpty ? allHistoryY : windowYValues;
+        expandedScale && allHistoryY.isNotEmpty ? allHistoryY : windowYValues;
     final rawMinY =
         activeYPool.isEmpty ? 60.0 : activeYPool.reduce(math.min);
     final rawMaxY =
@@ -202,9 +206,12 @@ class _WeightTrendDetailViewState extends State<WeightTrendDetailView> {
                   ),
                   const SizedBox(width: 10),
                   ScaleToggleButton(
-                    expanded: _expandedScale,
-                    onTap: () =>
-                        setState(() => _expandedScale = !_expandedScale),
+                    expanded: expandedScale,
+                    onTap: () => ref
+                        .read(chartPreferencesProvider(
+                                PersistedChartType.weightTrend)
+                            .notifier)
+                        .toggleScale(),
                   ),
                 ],
               ),
@@ -433,11 +440,14 @@ class _WeightTrendDetailViewState extends State<WeightTrendDetailView> {
         ),
         const SizedBox(height: 12),
         PeriodPillsBar(
-          selected: _range,
-          onChanged: (r) => setState(() {
-            _range = r;
-            _scrubIndex = null;
-          }),
+          selected: range,
+          onChanged: (r) {
+            ref
+                .read(chartPreferencesProvider(PersistedChartType.weightTrend)
+                    .notifier)
+                .setRange(r);
+            if (_scrubIndex != null) setState(() => _scrubIndex = null);
+          },
         ),
         const SizedBox(height: 10),
         const ChartLegendCard(

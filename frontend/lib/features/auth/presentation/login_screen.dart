@@ -16,6 +16,8 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _identifierFieldKey = GlobalKey();
+  final _passwordFieldKey = GlobalKey();
   final _identifierController = TextEditingController();
   final _passwordController = TextEditingController();
   late final TextEditingController _serverUrlController;
@@ -80,9 +82,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
-              child: AutofillGroup(
-                child: Form(
-                  key: _formKey,
+              child: Form(
+                key: _formKey,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -134,54 +135,66 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ),
                       const SizedBox(height: 16),
                     ],
-                    TextFormField(
-                      controller: _identifierController,
-                      keyboardType: TextInputType.emailAddress,
-                      autofillHints: const [
-                        AutofillHints.username,
-                        AutofillHints.email,
-                      ],
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'Identifiant (email ou nom d’utilisateur)',
-                        prefixIcon: Icon(Icons.person_outline_rounded),
-                      ),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Veuillez saisir votre identifiant';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 14),
-                    TextFormField(
-                      controller: _passwordController,
-                      obscureText: _obscurePassword,
-                      autofillHints: const [AutofillHints.password],
-                      textInputAction: TextInputAction.done,
-                      onFieldSubmitted: (_) => _submit(),
-                      decoration: InputDecoration(
-                        labelText: 'Mot de passe',
-                        prefixIcon: const Icon(Icons.lock_outline_rounded),
-                        suffixIcon: IconButton(
-                          onPressed: () {
-                            setState(() {
-                              _obscurePassword = !_obscurePassword;
-                            });
-                          },
-                          icon: Icon(
-                            _obscurePassword
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
+                    AutofillGroup(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          TextFormField(
+                            key: _identifierFieldKey,
+                            controller: _identifierController,
+                            keyboardType: TextInputType.emailAddress,
+                            autofillHints: const [
+                              AutofillHints.email,
+                              AutofillHints.username,
+                            ],
+                            textInputAction: TextInputAction.next,
+                            decoration: const InputDecoration(
+                              labelText:
+                                  'Identifiant (email ou nom d’utilisateur)',
+                              prefixIcon: Icon(Icons.person_outline_rounded),
+                            ),
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Veuillez saisir votre identifiant';
+                              }
+                              return null;
+                            },
                           ),
-                        ),
+                          const SizedBox(height: 14),
+                          TextFormField(
+                            key: _passwordFieldKey,
+                            controller: _passwordController,
+                            obscureText: _obscurePassword,
+                            keyboardType: TextInputType.visiblePassword,
+                            autofillHints: const [AutofillHints.password],
+                            textInputAction: TextInputAction.done,
+                            onFieldSubmitted: (_) => _submit(),
+                            decoration: InputDecoration(
+                              labelText: 'Mot de passe',
+                              prefixIcon:
+                                  const Icon(Icons.lock_outline_rounded),
+                              suffixIcon: IconButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _obscurePassword = !_obscurePassword;
+                                  });
+                                },
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
+                                ),
+                              ),
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Veuillez saisir votre mot de passe';
+                              }
+                              return null;
+                            },
+                          ),
+                        ],
                       ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Veuillez saisir votre mot de passe';
-                        }
-                        return null;
-                      },
                     ),
                     const SizedBox(height: 22),
                     ElevatedButton(
@@ -210,7 +223,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           horizontal: 16,
                           vertical: 2,
                         ),
-                        childrenPadding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+                        childrenPadding:
+                            const EdgeInsets.fromLTRB(16, 10, 16, 16),
                         leading: const Icon(
                           Icons.dns_outlined,
                           color: AppColors.textSecondary,
@@ -261,7 +275,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ),
                     ),
                   ],
-                ),
                 ),
               ),
             ),

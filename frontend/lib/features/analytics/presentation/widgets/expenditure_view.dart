@@ -2,28 +2,32 @@ import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import 'package:malvifactor/core/config/chart_preferences_provider.dart';
 import 'package:malvifactor/core/theme/app_theme.dart';
 import 'package:malvifactor/features/analytics/presentation/widgets/macro_factor_chart_widgets.dart';
 import 'package:malvifactor/features/analytics/providers/analytics_provider.dart';
 
-class ExpenditureDetailView extends StatefulWidget {
+class ExpenditureDetailView extends ConsumerStatefulWidget {
   const ExpenditureDetailView({super.key, required this.ctx});
 
   final FullMetricContext ctx;
 
   @override
-  State<ExpenditureDetailView> createState() => _ExpenditureDetailViewState();
+  ConsumerState<ExpenditureDetailView> createState() =>
+      _ExpenditureDetailViewState();
 }
 
-class _ExpenditureDetailViewState extends State<ExpenditureDetailView> {
-  AnalyticsRange _range = AnalyticsRange.m1;
-  bool _expandedScale = false;
+class _ExpenditureDetailViewState extends ConsumerState<ExpenditureDetailView> {
   int? _scrubIndex;
 
   @override
   Widget build(BuildContext context) {
+    final pref = ref.watch(chartPreferencesProvider(PersistedChartType.tdee));
+    final range = pref.range;
+    final expandedScale = pref.expandedScale;
     final points = widget.ctx.points;
     if (points.isEmpty) {
       return const Center(
@@ -37,7 +41,7 @@ class _ExpenditureDetailViewState extends State<ExpenditureDetailView> {
       );
     }
 
-    final windowPoints = sliceOrPadAnalyticsWindow(points, _range);
+    final windowPoints = sliceOrPadAnalyticsWindow(points, range);
     final windowCount = windowPoints.length;
 
     // Flux band sigma computed from historical TDEE variance (min ±55 kcal).
@@ -85,7 +89,7 @@ class _ExpenditureDetailViewState extends State<ExpenditureDetailView> {
     ];
 
     final activeYPool =
-        _expandedScale && allHistoryY.isNotEmpty ? allHistoryY : windowYValues;
+        expandedScale && allHistoryY.isNotEmpty ? allHistoryY : windowYValues;
     final rawMinY =
         activeYPool.isEmpty ? 1500.0 : activeYPool.reduce(math.min);
     final rawMaxY =
@@ -184,9 +188,11 @@ class _ExpenditureDetailViewState extends State<ExpenditureDetailView> {
                   ),
                   const SizedBox(width: 10),
                   ScaleToggleButton(
-                    expanded: _expandedScale,
-                    onTap: () =>
-                        setState(() => _expandedScale = !_expandedScale),
+                    expanded: expandedScale,
+                    onTap: () => ref
+                        .read(chartPreferencesProvider(PersistedChartType.tdee)
+                            .notifier)
+                        .toggleScale(),
                   ),
                 ],
               ),
@@ -382,11 +388,14 @@ class _ExpenditureDetailViewState extends State<ExpenditureDetailView> {
         ),
         const SizedBox(height: 12),
         PeriodPillsBar(
-          selected: _range,
-          onChanged: (r) => setState(() {
-            _range = r;
-            _scrubIndex = null;
-          }),
+          selected: range,
+          onChanged: (r) {
+            ref
+                .read(chartPreferencesProvider(PersistedChartType.tdee)
+                    .notifier)
+                .setRange(r);
+            if (_scrubIndex != null) setState(() => _scrubIndex = null);
+          },
         ),
         const SizedBox(height: 10),
         const ChartLegendCard(

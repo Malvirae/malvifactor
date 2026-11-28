@@ -15,6 +15,8 @@ from app.services.tdee_engine import get_targets_for_date
 from app.schemas.logs import (
     DayLogsResponse,
     DaySummaryItem,
+    FoodLogBatchCreateRequest,
+    FoodLogBatchCreateResponse,
     FoodLogBatchDeleteRequest,
     FoodLogBatchDeleteResponse,
     FoodLogCopyRequest,
@@ -218,6 +220,122 @@ async def create_food_log(
     await db.commit()
     await db.refresh(log)
     return _serialize_log_item(log, food, recipe)
+
+
+@router.post(
+    "/batch",
+    response_model=FoodLogBatchCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def batch_create_food_logs(
+    payload: FoodLogBatchCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> FoodLogBatchCreateResponse:
+    """Atomically insert a meal basket of food/recipe/free log items in one transaction."""
+    food_ids = list({item.food_id for item in payload.items if item.food_id is not None})
+    recipe_ids = list({item.recipe_id for item in payload.items if item.recipe_id is not None})
+
+    foods_map: dict[UUID, Food] = {}
+    if food_ids:
+        res = await db.execute(select(Food).where(Food.id.in_(food_ids)))
+        foods_map = {f.id: f for f in res.scalars().all()}
+        for fid in food_ids:
+            f = foods_map.get(fid)
+            if f is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Aliment introuvable",
+                )
+            if f.created_by_user_id is not None and f.created_by_user_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Accès refusé à cet aliment privé",
+                )
+
+    recipes_map: dict[UUID, Recipe] = {}
+    if recipe_ids:
+        res = await db.execute(select(Recipe).where(Recipe.id.in_(recipe_ids)))
+        recipes_map = {r.id: r for r in res.scalars().all()}
+        for rid in recipe_ids:
+            r = recipes_map.get(rid)
+            if r is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Recette introuvable",
+                )
+            if r.created_by_user_id != current_user.id and not r.is_shared:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Accès refusé à cette recette privée",
+                )
+
+    created_logs: list[FoodLog] = []
+    for item in payload.items:
+        if item.food_id is not None:
+            food = foods_map[item.food_id]
+            qty = item.quantity_g or 100.0
+            factor = qty / 100.0
+            kcal = round(food.kcal_per_100g * factor, 2)
+            protein_g = round(food.protein_per_100g * factor, 2)
+            fat_g = round(food.fat_per_100g * factor, 2)
+            carbs_g = round(food.carbs_per_100g * factor, 2)
+        elif item.recipe_id is not None:
+            recipe = recipes_map[item.recipe_id]
+            qty = item.quantity_g or 100.0
+            factor = qty / 100.0
+            kcal = round(recipe.kcal_per_100g * factor, 2)
+            protein_g = round(recipe.protein_per_100g * factor, 2)
+            fat_g = round(recipe.fat_per_100g * factor, 2)
+            carbs_g = round(recipe.carbs_per_100g * factor, 2)
+        else:
+            qty = item.quantity_g if item.quantity_g is not None else 1.0
+            kcal = round(item.kcal or 0.0, 2)
+            protein_g = round(item.protein_g or 0.0, 2)
+            fat_g = round(item.fat_g or 0.0, 2)
+            carbs_g = round(item.carbs_g or 0.0, 2)
+
+        log = FoodLog(
+            user_id=current_user.id,
+            logged_date=payload.logged_date,
+            logged_time=payload.logged_time,
+            food_id=item.food_id,
+            recipe_id=item.recipe_id,
+            custom_name=item.custom_name.strip() if item.custom_name else None,
+            quantity_g=qty,
+            kcal=kcal,
+            protein_g=protein_g,
+            fat_g=fat_g,
+            carbs_g=carbs_g,
+        )
+        db.add(log)
+        created_logs.append(log)
+
+    await db.commit()
+    for log in created_logs:
+        await db.refresh(log)
+
+    totals_res = await db.execute(
+        select(
+            func.sum(FoodLog.kcal),
+            func.sum(FoodLog.protein_g),
+            func.sum(FoodLog.fat_g),
+            func.sum(FoodLog.carbs_g),
+        ).where(
+            FoodLog.user_id == current_user.id,
+            FoodLog.logged_date == payload.logged_date,
+        )
+    )
+    row = totals_res.one()
+    totals = MacroSummary(
+        kcal=round(float(row[0] or 0.0), 1),
+        protein_g=round(float(row[1] or 0.0), 1),
+        fat_g=round(float(row[2] or 0.0), 1),
+        carbs_g=round(float(row[3] or 0.0), 1),
+    )
+
+    entries = await _load_enriched_logs(db, created_logs)
+    return FoodLogBatchCreateResponse(created_entries=entries, totals=totals)
 
 
 async def _get_owned_log(

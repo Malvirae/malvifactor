@@ -143,3 +143,55 @@ class FoodLogBatchDeleteResponse(BaseModel):
     """Number of deleted log entries."""
 
     deleted_count: int
+
+
+class BatchLogItemInput(BaseModel):
+    """Single item inside an atomic batch food log submission."""
+
+    food_id: UUID | None = None
+    recipe_id: UUID | None = None
+    custom_name: str | None = Field(default=None, min_length=1, max_length=255)
+    quantity_g: float | None = Field(default=None, gt=0.0)
+    kcal: float | None = Field(default=None, ge=0.0)
+    protein_g: float | None = Field(default=None, ge=0.0)
+    fat_g: float | None = Field(default=None, ge=0.0)
+    carbs_g: float | None = Field(default=None, ge=0.0)
+
+    @model_validator(mode="after")
+    def validate_source(self) -> "BatchLogItemInput":
+        if self.food_id is not None and self.recipe_id is not None:
+            raise ValueError("Provide either food_id or recipe_id, not both")
+
+        if self.food_id is not None or self.recipe_id is not None:
+            if self.quantity_g is None:
+                raise ValueError(
+                    "quantity_g is required when logging a food or recipe"
+                )
+        else:
+            if (
+                not self.custom_name
+                or self.kcal is None
+                or self.protein_g is None
+                or self.fat_g is None
+                or self.carbs_g is None
+            ):
+                raise ValueError(
+                    "custom_name, kcal, protein_g, fat_g, and carbs_g are required "
+                    "for a free quick-add entry"
+                )
+        return self
+
+
+class FoodLogBatchCreateRequest(BaseModel):
+    """Atomic batch creation of food logs at a given date and time."""
+
+    logged_date: date
+    logged_time: time
+    items: list[BatchLogItemInput] = Field(..., min_length=1)
+
+
+class FoodLogBatchCreateResponse(BaseModel):
+    """Created entries and updated daily macro totals."""
+
+    created_entries: list[FoodLogItem]
+    totals: MacroSummary

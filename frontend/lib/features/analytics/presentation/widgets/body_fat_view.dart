@@ -2,29 +2,32 @@ import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import 'package:malvifactor/core/config/chart_preferences_provider.dart';
 import 'package:malvifactor/core/theme/app_theme.dart';
 import 'package:malvifactor/features/analytics/presentation/widgets/macro_factor_chart_widgets.dart';
 import 'package:malvifactor/features/analytics/providers/analytics_provider.dart';
 import 'package:malvifactor/features/dashboard/data/dashboard_repository.dart';
 
-class BodyFatDetailView extends StatefulWidget {
+class BodyFatDetailView extends ConsumerStatefulWidget {
   const BodyFatDetailView({super.key, required this.ctx});
 
   final FullMetricContext ctx;
 
   @override
-  State<BodyFatDetailView> createState() => _BodyFatDetailViewState();
+  ConsumerState<BodyFatDetailView> createState() => _BodyFatDetailViewState();
 }
 
-class _BodyFatDetailViewState extends State<BodyFatDetailView> {
-  AnalyticsRange _range = AnalyticsRange.m1;
-  bool _expandedScale = false;
+class _BodyFatDetailViewState extends ConsumerState<BodyFatDetailView> {
   int? _scrubIndex;
 
   @override
   Widget build(BuildContext context) {
+    final pref = ref.watch(chartPreferencesProvider(PersistedChartType.bodyFat));
+    final range = pref.range;
+    final expandedScale = pref.expandedScale;
     final points = widget.ctx.points;
     final allWeights = widget.ctx.allWeights;
     final fatWeights = allWeights.where((w) => w.bodyFatPct != null).toList();
@@ -41,7 +44,7 @@ class _BodyFatDetailViewState extends State<BodyFatDetailView> {
       );
     }
 
-    final windowPoints = sliceOrPadAnalyticsWindow(points, _range);
+    final windowPoints = sliceOrPadAnalyticsWindow(points, range);
     final windowCount = windowPoints.length;
 
     final fatSeries = _buildDailyBodyFatSeries(points, fatWeights);
@@ -96,7 +99,7 @@ class _BodyFatDetailViewState extends State<BodyFatDetailView> {
     }
 
     final activeYPool =
-        _expandedScale && allHistoryY.isNotEmpty ? allHistoryY : windowYValues;
+        expandedScale && allHistoryY.isNotEmpty ? allHistoryY : windowYValues;
     final rawMinY =
         activeYPool.isEmpty ? 5.0 : activeYPool.reduce(math.min);
     final rawMaxY =
@@ -217,9 +220,11 @@ class _BodyFatDetailViewState extends State<BodyFatDetailView> {
                   ),
                   const SizedBox(width: 10),
                   ScaleToggleButton(
-                    expanded: _expandedScale,
-                    onTap: () =>
-                        setState(() => _expandedScale = !_expandedScale),
+                    expanded: expandedScale,
+                    onTap: () => ref
+                        .read(chartPreferencesProvider(PersistedChartType.bodyFat)
+                            .notifier)
+                        .toggleScale(),
                   ),
                 ],
               ),
@@ -433,11 +438,14 @@ class _BodyFatDetailViewState extends State<BodyFatDetailView> {
         ),
         const SizedBox(height: 12),
         PeriodPillsBar(
-          selected: _range,
-          onChanged: (r) => setState(() {
-            _range = r;
-            _scrubIndex = null;
-          }),
+          selected: range,
+          onChanged: (r) {
+            ref
+                .read(chartPreferencesProvider(PersistedChartType.bodyFat)
+                    .notifier)
+                .setRange(r);
+            if (_scrubIndex != null) setState(() => _scrubIndex = null);
+          },
         ),
         const SizedBox(height: 10),
         const ChartLegendCard(

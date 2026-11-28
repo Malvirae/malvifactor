@@ -67,6 +67,7 @@ class _MainShellState extends ConsumerState<MainShell> {
   Widget build(BuildContext context) {
     final currentIndex = widget.navigationShell.currentIndex;
     final activeJournalDate = ref.watch(journalDateProvider);
+    final showStrategyBadge = ref.watch(strategyCheckinBadgeProvider);
 
     return Scaffold(
       body: widget.navigationShell,
@@ -174,6 +175,7 @@ class _MainShellState extends ConsumerState<MainShell> {
                       icon: LucideIcons.trendingUp,
                       label: 'Stratégie',
                       selected: currentIndex == 2,
+                      showAlertBadge: showStrategyBadge,
                       onTap: () => _onSelectTab(2),
                     ),
                     _NavItem(
@@ -199,12 +201,14 @@ class _NavItem extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.showAlertBadge = false,
   });
 
   final IconData icon;
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final bool showAlertBadge;
 
   @override
   Widget build(BuildContext context) {
@@ -217,7 +221,39 @@ class _NavItem extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color, size: 20),
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(icon, color: color, size: 20),
+                if (showAlertBadge)
+                  Positioned(
+                    right: -7,
+                    top: -5,
+                    child: Container(
+                      width: 15,
+                      height: 15,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF59E0B),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: AppColors.surface,
+                          width: 1.5,
+                        ),
+                      ),
+                      child: const Text(
+                        '!',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 9.5,
+                          height: 1.0,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
             const SizedBox(height: 3),
             Text(
               label,

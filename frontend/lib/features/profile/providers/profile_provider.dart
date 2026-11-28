@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:malvifactor/features/dashboard/providers/dashboard_provider.dart';
 import 'package:malvifactor/features/profile/data/profile_repository.dart';
+import 'package:malvifactor/features/strategy/presentation/strategy_screen.dart';
 
 class ProfileNotifier extends StateNotifier<AsyncValue<UserProfileModel>> {
   ProfileNotifier(this._ref, this._repo) : super(const AsyncValue.loading()) {
@@ -58,6 +59,7 @@ class ProfileNotifier extends StateNotifier<AsyncValue<UserProfileModel>> {
       );
       state = AsyncValue.data(updated);
       _ref.invalidate(dashboardProvider);
+      _ref.invalidate(strategyProvider);
       return null;
     } on DioException catch (e) {
       final detail = e.response?.data is Map<String, dynamic>

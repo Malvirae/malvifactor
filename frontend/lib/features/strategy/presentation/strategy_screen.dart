@@ -43,6 +43,19 @@ final strategyProvider = FutureProvider<StrategyData>((ref) async {
   );
 });
 
+/// True strictly on the user's configured check-in day (never on J-1) when not done yet.
+final strategyCheckinBadgeProvider = Provider<bool>((ref) {
+  final strategyAsync = ref.watch(strategyProvider);
+  return strategyAsync.maybeWhen(
+    data: (data) {
+      final todayWeekday = DateTime.now().weekday - 1; // 0=Mon..6=Sun
+      if (todayWeekday != data.profile.checkinDay) return false;
+      return data.preview.isDue;
+    },
+    orElse: () => false,
+  );
+});
+
 class StrategyScreen extends ConsumerWidget {
   const StrategyScreen({super.key});
 

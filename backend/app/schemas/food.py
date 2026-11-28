@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -64,3 +65,37 @@ class FoodResponse(FoodBase):
     external_id: str | None
     created_by_user_id: UUID | None
     created_at: datetime
+    last_quantity_g: float | None = None
+
+
+class FoodSuggestionItem(BaseModel):
+    """Contextual suggestion or recent food/recipe item with remembered quantity."""
+
+    id: UUID
+    item_type: Literal["standard", "custom", "recipe"]
+    source: str
+    name: str
+    brand: str | None = None
+    serving_size_g: float
+    serving_label: str | None = None
+    kcal_per_100g: float
+    protein_per_100g: float
+    fat_per_100g: float
+    carbs_per_100g: float
+    fiber_per_100g: float = 0.0
+    last_quantity_g: float
+    last_serving_label: str | None = None
+    preview_kcal: float
+    preview_protein_g: float
+    preview_fat_g: float
+    preview_carbs_g: float
+    last_logged_at: datetime
+    times_logged_at_hour: int = 0
+
+
+class FoodSuggestionsResponse(BaseModel):
+    """Time-windowed habitual picks and recent foods/recipes."""
+
+    target_hour: int
+    time_picks: list[FoodSuggestionItem]
+    recent_foods: list[FoodSuggestionItem]
